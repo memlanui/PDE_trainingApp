@@ -1,0 +1,1506 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0C0D10">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Training Log</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&display=swap');
+
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+:root {
+  --bg: #0C0D10;
+  --surface: #17181D;
+  --inset: #101115;
+  --border: #24262E;
+  --text: #F2F3F5;
+  --dim: #8A8F9B;
+  --faint: #5B5F6B;
+  --green: #34C759;
+  --orange: #FF9F0A;
+  --red: #FF453A;
+  --gray: #6B7280;
+}
+
+html, body { height: 100%; }
+body {
+  background: #000;
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+  display: flex;
+  justify-content: center;
+}
+
+#app {
+  width: 100%;
+  max-width: 440px;
+  min-height: 100dvh;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* ---------- header ---------- */
+header {
+  padding: calc(18px + env(safe-area-inset-top)) 16px 10px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+.eyebrow {
+  font-family: 'Oswald', sans-serif;
+  font-size: 11px;
+  letter-spacing: .3em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+h1 {
+  font-family: 'Oswald', sans-serif;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--text);
+}
+.edit-btn {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--dim);
+  cursor: pointer;
+}
+.edit-btn.active { background: var(--text); color: var(--bg); }
+
+/* ---------- tabs ---------- */
+.tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 16px 16px 12px;   /* top padding leaves room for the badges */
+  margin-top: -10px;
+  scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar { display: none; }
+.tab-wrap { position: relative; flex-shrink: 0; }
+.tab {
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 9px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--dim);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tab.selected { background: var(--text); color: #0C0D10; }
+.tab.add { border-style: dashed; border-color: #3A3D47; }
+.tab-actions {
+  position: absolute;
+  top: -11px; right: -6px;
+  display: flex; gap: 5px;
+  z-index: 2;
+}
+.tab-actions button {
+  min-width: 26px; height: 26px;
+  border-radius: 999px;
+  border: none;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0C0D10;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 7px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.5);
+}
+.tab-archive { background: var(--orange); }
+.tab-delete  { background: var(--red); color: #fff !important; }
+
+/* ---------- legend ---------- */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding: 0 16px 10px;
+  font-size: 11px;
+  color: var(--faint);
+}
+.legend span { display: flex; align-items: center; gap: 6px; }
+
+.dot {
+  width: 13px; height: 13px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  box-shadow: inset 0 0 0 3px rgba(0,0,0,.45);
+}
+
+/* ---------- content ---------- */
+main { flex: 1; overflow-y: auto; padding: 4px 16px 40px; }
+
+.rename {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--faint);
+  font-size: 12px;
+  margin-bottom: 12px;
+  font-family: inherit;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 15px;
+  margin-bottom: 12px;
+}
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.ex-name { font-size: 15px; font-weight: 600; flex: 1; }
+.x-btn {
+  background: var(--inset);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--faint);
+  font-size: 13px;
+  cursor: pointer;
+  min-width: 30px; height: 30px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 9px;
+  font-family: inherit;
+}
+.x-btn.confirm { background: var(--red); border-color: var(--red); color: #fff; font-size: 11px; font-weight: 700; }
+.chart-btn {
+  background: var(--inset);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--dim);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 11px;
+  cursor: pointer;
+  margin-right: 6px;
+  font-family: inherit;
+}
+.chart-btn.open { background: var(--text); color: #0C0D10; }
+
+/* previous entry */
+.prev {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  background: var(--inset);
+  border-radius: 14px;
+  padding: 10px 13px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+}
+.prev-label {
+  font-family: 'Oswald', sans-serif;
+  font-size: 11px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.prev-val { font-size: 19px; font-weight: 700; }
+.prev-val small { font-size: 13px; font-weight: 500; opacity: .75; }
+
+/* chart panel */
+.chart-panel {
+  background: var(--inset);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.chart-panel svg { display: block; width: 100%; height: auto; }
+.tap-zone { cursor: pointer; }
+.chart-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+.chart-title .name {
+  font-family: 'Oswald', sans-serif;
+  font-size: 11px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.chart-title .val { font-size: 15px; font-weight: 700; }
+.chart-dates {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--faint);
+  margin-top: 4px;
+}
+.mini-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.mini {
+  flex: 1;
+  background: #0C0D10;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  padding: 8px 9px 6px;
+  min-width: 0;
+  cursor: pointer;
+}
+.mini .m-label {
+  font-family: 'Oswald', sans-serif;
+  font-size: 9px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.mini .m-val {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chart-empty {
+  font-size: 12px;
+  color: var(--faint);
+  text-align: center;
+  padding: 14px 0;
+}
+.expand-hint {
+  text-align: center;
+  font-size: 10px;
+  color: var(--faint);
+  margin-top: 8px;
+}
+
+/* input row */
+.row { display: flex; gap: 8px; }
+.field {
+  flex: 1;
+  background: var(--inset);
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 4px 7px;
+  min-width: 0;
+}
+.field label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--faint);
+  font-family: 'Oswald', sans-serif;
+}
+.field input, .field select {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+  text-align: center;
+  text-align-last: center;
+  font-family: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.field select option { background: var(--surface); color: var(--text); }
+input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; }
+
+.log-btn {
+  border: none;
+  border-radius: 13px;
+  background: var(--text);
+  color: #0C0D10;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 0 18px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.log-btn:active { opacity: .7; }
+
+/* add exercise */
+.add-card {
+  background: var(--surface);
+  border: 1px dashed #3A3D47;
+  border-radius: 18px;
+  padding: 14px;
+  margin-top: 6px;
+}
+.add-card .name-input {
+  width: 100%;
+  background: var(--inset);
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  padding: 11px 13px;
+  font-size: 14px;
+  color: var(--text);
+  outline: none;
+  font-family: inherit;
+  margin-bottom: 9px;
+}
+.add-card .name-input::placeholder { color: var(--faint); }
+.start-label {
+  font-family: 'Oswald', sans-serif;
+  font-size: 10px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 6px;
+}
+
+/* maxes */
+.max-row {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+.max-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.max-label {
+  font-family: 'Oswald', sans-serif;
+  font-size: 13px;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.max-row input {
+  width: 110px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-family: 'Oswald', sans-serif;
+  font-size: 34px;
+  font-weight: 700;
+  text-align: right;
+}
+.max-unit { color: var(--faint); font-size: 14px; font-weight: 500; margin-left: 4px; }
+.max-chart { margin-top: 10px; }
+.total-card {
+  background: linear-gradient(160deg, #1C1E25, #14151A);
+  border: 1px solid #2C2F3A;
+  border-radius: 18px;
+  padding: 20px;
+  margin-top: 18px;
+  text-align: center;
+}
+.total-num {
+  font-family: 'Oswald', sans-serif;
+  font-size: 52px;
+  font-weight: 700;
+  line-height: 1;
+}
+.total-num small { font-size: 20px; color: var(--faint); margin-left: 4px; }
+
+/* archived */
+.arch-row {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.pill-btn {
+  border: none;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 13px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.pill-light { background: var(--text); color: #0C0D10; }
+.pill-red   { background: #2A1517; color: var(--red); }
+.pill-red.confirm { background: var(--red); color: #fff; }
+
+/* settings */
+.setting-row {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 16px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.setting-label { font-size: 15px; font-weight: 600; }
+.setting-sub { font-size: 12px; color: var(--faint); margin-top: 2px; }
+.seg {
+  display: flex;
+  background: var(--inset);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px;
+}
+.seg button {
+  border: none;
+  background: transparent;
+  color: var(--dim);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 7px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.seg button.on { background: var(--text); color: #0C0D10; }
+.hint { text-align: center; color: var(--faint); font-size: 12px; margin-top: 14px; }
+
+/* ---------- fullscreen chart modal ---------- */
+#modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.7);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+}
+#modal[hidden] { display: none; }
+.modal-card {
+  width: 100%;
+  max-width: 560px;
+  background: var(--surface);
+  border: 1px solid #2C2F3A;
+  border-radius: 20px;
+  padding: 16px;
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.modal-title { font-size: 16px; font-weight: 700; }
+.modal-sub {
+  font-family: 'Oswald', sans-serif;
+  font-size: 10px;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.modal-close {
+  background: var(--inset);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--dim);
+  width: 34px; height: 34px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.chip {
+  border: 1px solid var(--border);
+  background: var(--inset);
+  color: var(--dim);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.chip.on { color: #0C0D10; }
+#modalChartWrap {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  background: var(--inset);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+#modalChartWrap svg { display: block; width: 100%; height: auto; pointer-events: none; }
+.modal-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.zoom-btn {
+  background: var(--inset);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 700;
+  width: 40px; height: 34px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.zoom-reset { width: auto; padding: 0 13px; font-size: 12px; color: var(--dim); }
+.modal-hint { flex: 1; text-align: right; font-size: 10px; color: var(--faint); line-height: 1.4; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div>
+      <div class="eyebrow">Training Log</div>
+      <h1 id="title"></h1>
+    </div>
+    <button class="edit-btn" id="editBtn">Edit</button>
+  </header>
+  <div class="tabs" id="tabs"></div>
+  <div class="legend" id="legend"></div>
+  <main id="main"></main>
+</div>
+
+<div id="modal" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <div>
+        <div class="modal-sub" id="modalSub"></div>
+        <div class="modal-title" id="modalTitle"></div>
+      </div>
+      <button class="modal-close" id="modalClose">✕</button>
+    </div>
+    <div class="chips" id="modalChips"></div>
+    <div id="modalChartWrap"></div>
+    <div class="modal-controls">
+      <button class="zoom-btn" data-zoom="out">−</button>
+      <button class="zoom-btn" data-zoom="in">+</button>
+      <button class="zoom-btn zoom-reset" data-zoom="reset">Tout</button>
+      <div class="modal-hint">Touche un point pour sa valeur<br>Glisse pour naviguer · pince ou molette pour zoomer</div>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="importFile" accept=".json" style="display:none">
+
+<script>
+/* =================================================================
+   State + persistence  (all weights stored in KG internally)
+   ================================================================= */
+const DAY = 86400000;
+const MONTH = 30 * DAY;
+const daysAgo = n => Date.now() - n * DAY;
+let uid = Date.now();
+const nid = () => ++uid;
+
+function genHistory(last, lastChanged, weeks = 8, step = 2.5) {
+  const h = [];
+  const flatWeeks = Math.min(weeks - 1, Math.floor((Date.now() - lastChanged) / (7 * DAY)));
+  for (let i = weeks - 1; i >= 0; i--) {
+    const progress = Math.max(0, i - flatWeeks);
+    h.push({
+      date: daysAgo(i * 7),
+      weight: Math.max(step, last.weight - progress * step),
+      sets: last.sets,
+      reps: Math.max(1, last.reps + (i > weeks - 3 ? 1 : 0)),
+    });
+  }
+  h[h.length - 1] = { date: h[h.length - 1].date, ...last };
+  return h;
+}
+
+function genMaxHistory(value, months = 6, step = 5) {
+  const h = [];
+  for (let i = months - 1; i >= 0; i--)
+    h.push({ date: daysAgo(i * 30), value: value - i * step });
+  return h;
+}
+
+function mkEx(id, name, last, changedDays) {
+  return { id, name, last, lastChanged: daysAgo(changedDays), history: genHistory(last, daysAgo(changedDays)) };
+}
+
+const DEFAULT_STATE = {
+  settings: { unit: "kg" },
+  workouts: [
+    { id: 1, name: "Squat Day", archived: false, exercises: [
+      mkEx(11, "Comp Squat",  { weight: 170, sets: 5, reps: 3 },  3),
+      mkEx(12, "Pause Squat", { weight: 140, sets: 3, reps: 4 },  16),
+      mkEx(13, "Leg Press",   { weight: 280, sets: 3, reps: 10 }, 24),
+      mkEx(14, "Leg Curl",    { weight: 55,  sets: 3, reps: 12 }, 41),
+    ]},
+    { id: 2, name: "Bench Day", archived: false, exercises: [
+      mkEx(21, "Comp Bench",       { weight: 117.5, sets: 5, reps: 3 }, 5),
+      mkEx(22, "Close Grip Bench", { weight: 100,   sets: 3, reps: 6 }, 18),
+      mkEx(23, "DB OHP",           { weight: 28,    sets: 3, reps: 10 }, 35),
+    ]},
+    { id: 3, name: "Deadlift Day", archived: false, exercises: [
+      mkEx(31, "Comp Deadlift",    { weight: 220, sets: 4, reps: 2 }, 2),
+      mkEx(32, "Deficit Deadlift", { weight: 180, sets: 3, reps: 4 }, 23),
+      mkEx(33, "Barbell Row",      { weight: 105, sets: 4, reps: 8 }, 12),
+    ]},
+    { id: 4, name: "Upper Accessories", archived: false, exercises: [
+      mkEx(41, "Weighted Pull-up", { weight: 30, sets: 4, reps: 6 },  9),
+      mkEx(42, "Incline DB Press", { weight: 34, sets: 3, reps: 10 }, 30),
+    ]},
+    { id: 5, name: "Lower Accessories", archived: false, exercises: [
+      mkEx(51, "Front Squat", { weight: 110, sets: 3, reps: 5 }, 15),
+      mkEx(52, "RDL",         { weight: 150, sets: 3, reps: 8 }, 6),
+    ]},
+    { id: 6, name: "GPP / Arms", archived: false, exercises: [
+      mkEx(61, "EZ Curl", { weight: 35, sets: 3, reps: 12 }, 50),
+    ]},
+  ],
+  maxes: {
+    squat:    { value: 200,   history: genMaxHistory(200) },
+    bench:    { value: 132.5, history: genMaxHistory(132.5, 6, 2.5) },
+    deadlift: { value: 260,   history: genMaxHistory(260) },
+  },
+};
+
+function migrate(data) {
+  data.settings ??= { unit: "kg" };
+  for (const w of data.workouts)
+    for (const ex of w.exercises)
+      ex.history ??= [{ date: ex.lastChanged, ...ex.last }];
+  for (const k of ["squat", "bench", "deadlift"]) {
+    if (typeof data.maxes[k] !== "object" || data.maxes[k] === null) {
+      const v = parseFloat(data.maxes[k]) || 0;
+      data.maxes[k] = { value: v, history: v ? [{ date: Date.now(), value: v }] : [] };
+    }
+    data.maxes[k].history ??= [];
+  }
+  return data;
+}
+
+const KEY = "training-log-v1";
+let storageOk = true;
+function load() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (raw) return migrate(JSON.parse(raw));
+  } catch (e) { storageOk = false; }
+  return JSON.parse(JSON.stringify(DEFAULT_STATE));
+}
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(state)); }
+  catch (e) { /* preview / private mode: in-memory only */ }
+}
+
+let state = load();
+let activeId = state.workouts.find(w => !w.archived)?.id ?? "maxes";
+let editTabs = false;
+let pendingDel = null;    // workout id awaiting "Sûr ?" confirmation
+let pendingDelEx = null;  // exercise id awaiting confirmation
+const drafts = {};
+const addDraft = { name: "", s: "", r: "", w: "" };
+const expanded = new Set();
+const expandedMax = new Set();
+
+/* =================================================================
+   Units
+   ================================================================= */
+const KG2LB = 2.2046226218;
+const unit = () => state.settings.unit;
+const disp = kg => unit() === "lbs" ? kg * KG2LB : kg;
+const store = v  => unit() === "lbs" ? v / KG2LB : v;
+const fmtNum = v => {
+  const r = Math.round(v * 10) / 10;
+  return Number.isInteger(r) ? r : r.toFixed(1);
+};
+const fmtW = kg => fmtNum(disp(kg));
+
+/* =================================================================
+   Staleness
+   ================================================================= */
+function stalenessColor(lastChanged) {
+  const weeks = (Date.now() - lastChanged) / (7 * DAY);
+  if (weeks < 2)    return "var(--green)";
+  if (weeks < 3)    return "var(--orange)";
+  if (weeks < 4.35) return "var(--red)";
+  return "var(--gray)";
+}
+
+/* =================================================================
+   Inline (static) charts — default window: last month
+   ================================================================= */
+function fmtDate(t, withYear = false) {
+  const o = { day: "numeric", month: "short" };
+  if (withYear) o.year = "numeric";
+  return new Date(t).toLocaleDateString("fr-CA", o);
+}
+
+/* keep only the last month of points (fallback: everything) */
+function lastMonth(h) {
+  const cutoff = Date.now() - MONTH;
+  const win = h.filter(p => p.date >= cutoff);
+  return win.length >= 2 ? win : h;
+}
+
+/* big inline chart with min/max value labels on the y axis */
+function bigSVG(vals, color, W, H) {
+  const padL = 34, padR = 8, padT = 12, padB = 8;
+  const n = vals.length;
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const span = max - min || 1;
+  const x = i => padL + (i / Math.max(1, n - 1)) * (W - padL - padR);
+  const y = v => H - padB - ((v - min) / span) * (H - padT - padB);
+  const pts = vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  let s = "";
+  s += `<line x1="${padL}" y1="${y(max)}" x2="${W - padR}" y2="${y(max)}" stroke="#24262E" stroke-width="1"/>`;
+  s += `<line x1="${padL}" y1="${y(min)}" x2="${W - padR}" y2="${y(min)}" stroke="#24262E" stroke-width="1"/>`;
+  s += `<text x="${padL - 5}" y="${y(max) + 3}" text-anchor="end" font-size="9" fill="#5B5F6B">${fmtNum(max)}</text>`;
+  s += `<text x="${padL - 5}" y="${y(min) + 3}" text-anchor="end" font-size="9" fill="#5B5F6B">${fmtNum(min)}</text>`;
+  s += `<polygon points="${x(0).toFixed(1)},${H - padB} ${pts} ${x(n - 1).toFixed(1)},${H - padB}" fill="${color}" opacity="0.08"/>`;
+  s += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`;
+  s += `<circle cx="${x(n - 1).toFixed(1)}" cy="${y(vals[n - 1]).toFixed(1)}" r="3.5" fill="${color}"/>`;
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${s}</svg>`;
+}
+
+/* mini sparkline with min/max labels under it */
+function miniSVG(vals, color, W, H) {
+  const padX = 3, padT = 4, padB = 4;
+  const n = vals.length;
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const span = max - min || 1;
+  const x = i => padX + (i / Math.max(1, n - 1)) * (W - 2 * padX);
+  const y = v => H - padB - ((v - min) / span) * (H - padT - padB);
+  const pts = vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  let s = `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  s += `<circle cx="${x(n - 1).toFixed(1)}" cy="${y(vals[n - 1]).toFixed(1)}" r="3" fill="${color}"/>`;
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${s}</svg>` +
+    `<div style="display:flex;justify-content:space-between;font-size:8px;color:var(--faint)"><span>${fmtNum(min)}</span><span>${fmtNum(max)}</span></div>`;
+}
+
+function chartHTML(ex) {
+  const all = (ex.history || []).slice().sort((a, b) => a.date - b.date);
+  if (all.length < 2)
+    return `<div class="chart-panel"><div class="chart-empty">Pas encore assez d'entrées — logue quelques séances pour voir la progression.</div></div>`;
+  const h = lastMonth(all);
+
+  const vol = h.map(e => disp(e.weight * e.sets * e.reps));
+  const wts = h.map(e => disp(e.weight));
+  const sets = h.map(e => e.sets);
+  const reps = h.map(e => e.reps);
+  const u = unit();
+
+  const mini = (metric, label, vals, color, suffix) => `
+    <div class="mini" data-open-ex="${ex.id}" data-open-metric="${metric}">
+      <div class="m-label">${label}</div>
+      <div class="m-val" style="color:${color}">${fmtNum(vals[vals.length - 1])}${suffix}</div>
+      ${miniSVG(vals, color, 100, 28)}
+    </div>`;
+
+  return `<div class="chart-panel">
+    <div class="tap-zone" data-open-ex="${ex.id}" data-open-metric="vol">
+      <div class="chart-title">
+        <span class="name">Poids total soulevé · 1 mois</span>
+        <span class="val" style="color:#F2F3F5">${fmtNum(vol[vol.length - 1])} ${u}</span>
+      </div>
+      ${bigSVG(vol, "#F2F3F5", 360, 110)}
+      <div class="chart-dates"><span>${fmtDate(h[0].date)}</span><span>${fmtDate(h[h.length - 1].date)}</span></div>
+    </div>
+    <div class="mini-row">
+      ${mini("weight", "Poids", wts, "#5AC8FA", " " + u)}
+      ${mini("sets", "Sets", sets, "#BF5AF2", "")}
+      ${mini("reps", "Reps", reps, "#FFD60A", "")}
+    </div>
+    <div class="expand-hint">Touche un graph pour l'agrandir</div>
+  </div>`;
+}
+
+function maxChartHTML(m, key) {
+  const all = (m.history || []).slice().sort((a, b) => a.date - b.date);
+  if (all.length < 2)
+    return `<div class="chart-panel"><div class="chart-empty">Pas encore assez d'entrées — mets ton max à jour quelques fois pour voir la courbe.</div></div>`;
+  const h = lastMonth(all);
+  const vals = h.map(e => disp(e.value));
+  return `<div class="chart-panel">
+    <div class="tap-zone" data-open-max="${key}">
+      ${bigSVG(vals, "#5AC8FA", 360, 90)}
+      <div class="chart-dates"><span>${fmtDate(h[0].date)}</span><span>${fmtDate(h[h.length - 1].date)}</span></div>
+    </div>
+    <div class="expand-hint">Touche le graph pour l'agrandir</div>
+  </div>`;
+}
+
+/* =================================================================
+   Fullscreen interactive chart modal
+   ================================================================= */
+const METRICS = {
+  vol:    { label: "Poids total soulevé", color: "#F2F3F5", get: e => e.weight * e.sets * e.reps, weightUnit: true },
+  weight: { label: "Poids",               color: "#5AC8FA", get: e => e.weight,                   weightUnit: true },
+  sets:   { label: "Sets",                color: "#BF5AF2", get: e => e.sets,                     weightUnit: false },
+  reps:   { label: "Reps",                color: "#FFD60A", get: e => e.reps,                     weightUnit: false },
+};
+const MAX_LABELS = { squat: "Squat", bench: "Bench", deadlift: "Deadlift" };
+
+let modal = null;
+
+function modalSeries() {
+  if (modal.type === "ex") {
+    const ex = state.workouts.flatMap(w => w.exercises).find(e => e.id === modal.exId);
+    if (!ex) return { pts: [], m: METRICS[modal.metric] };
+    const m = METRICS[modal.metric];
+    const pts = ex.history.slice().sort((a, b) => a.date - b.date)
+      .map(e => ({ date: e.date, v: m.weightUnit ? disp(m.get(e)) : m.get(e) }));
+    return { pts, m, name: ex.name };
+  }
+  const mx = state.maxes[modal.maxKey];
+  const pts = mx.history.slice().sort((a, b) => a.date - b.date)
+    .map(e => ({ date: e.date, v: disp(e.value) }));
+  return { pts, m: { label: "Max", color: "#5AC8FA", weightUnit: true }, name: MAX_LABELS[modal.maxKey] };
+}
+
+function openModal(opts) {
+  modal = { metric: "vol", sel: null, ...opts };
+  const { pts } = modalSeries();
+  if (pts.length) {
+    let f0 = pts[0].date, f1 = pts[pts.length - 1].date;
+    if (f1 - f0 < DAY) { f0 -= DAY; f1 += DAY; }
+    modal.full = [f0, f1];
+    modal.t1 = f1;
+    modal.t0 = Math.max(f0, f1 - MONTH);   // default view: last month
+  } else {
+    modal.full = [daysAgo(30), Date.now()];
+    [modal.t0, modal.t1] = modal.full;
+  }
+  document.getElementById("modal").hidden = false;
+  renderModal();
+}
+
+function closeModal() {
+  modal = null;
+  document.getElementById("modal").hidden = true;
+}
+
+const MW = 360, MH = 230, MPL = 38, MPR = 14, MPT = 12, MPB = 22;
+const mx_ = t => MPL + ((t - modal.t0) / (modal.t1 - modal.t0)) * (MW - MPL - MPR);
+
+function renderModal() {
+  if (!modal) return;
+  const { pts, m, name } = modalSeries();
+  const u = unit();
+
+  document.getElementById("modalSub").textContent = modal.type === "ex" ? name : "Max — " + name;
+  document.getElementById("modalTitle").textContent = m.label + (m.weightUnit ? ` (${u})` : "");
+
+  document.getElementById("modalChips").innerHTML = modal.type === "ex"
+    ? Object.entries(METRICS).map(([k, mm]) =>
+        `<button class="chip ${modal.metric === k ? "on" : ""}" data-metric="${k}"
+          style="${modal.metric === k ? `background:${mm.color};border-color:${mm.color}` : ""}">${mm.label}</button>`).join("")
+    : "";
+
+  const wrap = document.getElementById("modalChartWrap");
+  if (pts.length < 2) {
+    wrap.innerHTML = `<div class="chart-empty" style="padding:40px 0">Pas encore assez d'entrées.</div>`;
+    return;
+  }
+
+  const vis = pts.filter(p => p.date >= modal.t0 && p.date <= modal.t1);
+  const yVals = (vis.length ? vis : pts).map(p => p.v);
+  let min = Math.min(...yVals), max = Math.max(...yVals);
+  if (min === max) { min -= 1; max += 1; }
+  const yPad = (max - min) * 0.12;
+  min -= yPad; max += yPad;
+  const my = v => MH - MPB - ((v - min) / (max - min)) * (MH - MPT - MPB);
+
+  let s = "";
+  for (let g = 0; g <= 2; g++) {
+    const v = min + (g / 2) * (max - min);
+    const y = my(v);
+    s += `<line x1="${MPL}" y1="${y}" x2="${MW - MPR}" y2="${y}" stroke="#24262E" stroke-width="1"/>`;
+    s += `<text x="${MPL - 5}" y="${y + 3}" text-anchor="end" font-size="9" fill="#5B5F6B">${fmtNum(v)}</text>`;
+  }
+
+  s += `<defs><clipPath id="plot"><rect x="${MPL}" y="0" width="${MW - MPL - MPR}" height="${MH - MPB + 6}"/></clipPath></defs>`;
+  const line = pts.map(p => `${mx_(p.date).toFixed(1)},${my(Math.max(min, Math.min(max, p.v))).toFixed(1)}`).join(" ");
+  s += `<g clip-path="url(#plot)">`;
+  s += `<polygon points="${mx_(pts[0].date).toFixed(1)},${MH - MPB} ${line} ${mx_(pts[pts.length - 1].date).toFixed(1)},${MH - MPB}" fill="${m.color}" opacity="0.07"/>`;
+  s += `<polyline points="${line}" fill="none" stroke="${m.color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`;
+  for (const p of vis)
+    s += `<circle cx="${mx_(p.date).toFixed(1)}" cy="${my(p.v).toFixed(1)}" r="3.2" fill="${m.color}"/>`;
+  s += `</g>`;
+
+  if (modal.sel && modal.sel.date >= modal.t0 && modal.sel.date <= modal.t1) {
+    const p = modal.sel;
+    const px = mx_(p.date), py = my(p.v);
+    s += `<line x1="${px}" y1="${MPT}" x2="${px}" y2="${MH - MPB}" stroke="${m.color}" stroke-width="1" stroke-dasharray="3 3" opacity=".5"/>`;
+    s += `<circle cx="${px}" cy="${py}" r="5.5" fill="#0C0D10" stroke="${m.color}" stroke-width="2.5"/>`;
+    const valTxt = fmtNum(p.v) + (m.weightUnit ? " " + u : "");
+    const dateTxt = fmtDate(p.date, true);
+    const bw = Math.max(valTxt.length, dateTxt.length) * 6.2 + 16;
+    const left = px > (MW - MPR + MPL) / 2;
+    const bx = left ? px - bw - 10 : px + 10;
+    const by = Math.max(MPT, Math.min(py - 19, MH - MPB - 38));
+    s += `<rect x="${bx}" y="${by}" width="${bw}" height="36" rx="8" fill="#1C1E25" stroke="${m.color}" stroke-width="1"/>`;
+    s += `<text x="${bx + 8}" y="${by + 15}" font-size="11" font-weight="700" fill="${m.color}">${valTxt}</text>`;
+    s += `<text x="${bx + 8}" y="${by + 29}" font-size="9.5" fill="#8A8F9B">${dateTxt}</text>`;
+  }
+
+  const longRange = modal.t1 - modal.t0 > 300 * DAY;
+  s += `<text x="${MPL}" y="${MH - 6}" font-size="9.5" fill="#5B5F6B">${fmtDate(modal.t0, longRange)}</text>`;
+  s += `<text x="${MW - MPR}" y="${MH - 6}" text-anchor="end" font-size="9.5" fill="#5B5F6B">${fmtDate(modal.t1, longRange)}</text>`;
+
+  wrap.innerHTML = `<svg viewBox="0 0 ${MW} ${MH}">${s}</svg>`;
+}
+
+/* ---- modal gestures: native touch (pan / pinch / tap) + mouse + wheel ---- */
+const wrapEl = () => document.getElementById("modalChartWrap");
+
+function clampView() {
+  const [f0, f1] = modal.full;
+  const fullSpan = f1 - f0;
+  const minSpan = Math.max(2 * DAY, fullSpan / 60);
+  let span = modal.t1 - modal.t0;
+  span = Math.min(Math.max(span, minSpan), fullSpan);
+  if (modal.t0 < f0) modal.t0 = f0;
+  if (modal.t0 + span > f1) modal.t0 = f1 - span;
+  modal.t1 = modal.t0 + span;
+}
+
+function zoomAt(factor, centerT) {
+  const span = (modal.t1 - modal.t0) * factor;
+  const frac = (centerT - modal.t0) / (modal.t1 - modal.t0);
+  modal.t0 = centerT - span * frac;
+  modal.t1 = modal.t0 + span;
+  clampView();
+  renderModal();
+}
+
+function clientXToTime(clientX) {
+  const r = wrapEl().getBoundingClientRect();
+  const svgX = ((clientX - r.left) / r.width) * MW;
+  return modal.t0 + ((svgX - MPL) / (MW - MPL - MPR)) * (modal.t1 - modal.t0);
+}
+
+function selectAt(clientX) {
+  const t = clientXToTime(clientX);
+  const { pts } = modalSeries();
+  const vis = pts.filter(p => p.date >= modal.t0 && p.date <= modal.t1);
+  const pool = vis.length ? vis : pts;
+  if (!pool.length) return;
+  let best = pool[0];
+  for (const p of pool)
+    if (Math.abs(p.date - t) < Math.abs(best.date - t)) best = p;
+  modal.sel = (modal.sel && modal.sel.date === best.date && modal.sel.v === best.v) ? null : best;
+  renderModal();
+}
+
+let mg = null; // modal gesture
+
+function setupModalGestures() {
+  const w = wrapEl();
+
+  w.addEventListener("touchstart", e => {
+    if (!modal) return;
+    if (e.touches.length === 1) {
+      mg = { mode: "pan", x: e.touches[0].clientX, t0: modal.t0, t1: modal.t1, moved: 0 };
+    } else {
+      const a = e.touches[0], b = e.touches[1];
+      mg = {
+        mode: "pinch",
+        d: Math.abs(a.clientX - b.clientX) || 1,
+        t0: modal.t0, t1: modal.t1,
+        midT: clientXToTime((a.clientX + b.clientX) / 2),
+        moved: 99,
+      };
+    }
+  }, { passive: true });
+
+  w.addEventListener("touchmove", e => {
+    if (!modal || !mg) return;
+    e.preventDefault();
+    if (e.touches.length >= 2) {
+      const a = e.touches[0], b = e.touches[1];
+      if (mg.mode !== "pinch")
+        mg = { mode: "pinch", d: Math.abs(a.clientX - b.clientX) || 1, t0: modal.t0, t1: modal.t1,
+               midT: clientXToTime((a.clientX + b.clientX) / 2), moved: 99 };
+      const dist = Math.abs(a.clientX - b.clientX) || 1;
+      const span = (mg.t1 - mg.t0) * (mg.d / dist);
+      const frac = (mg.midT - mg.t0) / (mg.t1 - mg.t0);
+      modal.t0 = mg.midT - span * frac;
+      modal.t1 = modal.t0 + span;
+      clampView();
+      renderModal();
+    } else if (mg.mode === "pan") {
+      const dx = e.touches[0].clientX - mg.x;
+      mg.moved = Math.max(mg.moved, Math.abs(dx));
+      const r = w.getBoundingClientRect();
+      const dt = -(dx / r.width) * (mg.t1 - mg.t0);
+      modal.t0 = mg.t0 + dt;
+      modal.t1 = mg.t1 + dt;
+      clampView();
+      renderModal();
+    }
+  }, { passive: false });
+
+  w.addEventListener("touchend", e => {
+    if (!modal || !mg) return;
+    if (e.touches.length === 0) {
+      if (mg.mode === "pan" && mg.moved < 8 && e.changedTouches.length) {
+        e.preventDefault();   // avoid the emulated mouse click double-firing
+        selectAt(e.changedTouches[0].clientX);
+      }
+      mg = null;
+    } else if (e.touches.length === 1) {
+      mg = { mode: "pan", x: e.touches[0].clientX, t0: modal.t0, t1: modal.t1, moved: 99 };
+    }
+  });
+  w.addEventListener("touchcancel", () => { mg = null; });
+
+  // mouse (desktop)
+  w.addEventListener("mousedown", e => {
+    if (!modal) return;
+    mg = { mode: "mouse", x: e.clientX, t0: modal.t0, t1: modal.t1, moved: 0 };
+  });
+  document.addEventListener("mousemove", e => {
+    if (!modal || !mg || mg.mode !== "mouse") return;
+    const dx = e.clientX - mg.x;
+    mg.moved = Math.max(mg.moved, Math.abs(dx));
+    const r = wrapEl().getBoundingClientRect();
+    const dt = -(dx / r.width) * (mg.t1 - mg.t0);
+    modal.t0 = mg.t0 + dt;
+    modal.t1 = mg.t1 + dt;
+    clampView();
+    renderModal();
+  });
+  document.addEventListener("mouseup", e => {
+    if (!modal || !mg || mg.mode !== "mouse") return;
+    if (mg.moved < 5) selectAt(e.clientX);
+    mg = null;
+  });
+
+  w.addEventListener("wheel", e => {
+    if (!modal) return;
+    e.preventDefault();
+    zoomAt(e.deltaY > 0 ? 1.18 : 0.85, clientXToTime(e.clientX));
+  }, { passive: false });
+}
+
+/* =================================================================
+   Render
+   ================================================================= */
+const $ = id => document.getElementById(id);
+const esc = s => s.replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+function render() {
+  const visible  = state.workouts.filter(w => !w.archived);
+  const archived = state.workouts.filter(w => w.archived);
+  const active   = state.workouts.find(w => w.id === activeId);
+
+  $("title").textContent =
+    activeId === "maxes" ? "Maxes — S/B/D" :
+    activeId === "archived" ? "Archivés" :
+    activeId === "settings" ? "Réglages" :
+    active ? active.name : "";
+
+  const eb = $("editBtn");
+  eb.textContent = editTabs ? "OK" : "Edit";
+  eb.classList.toggle("active", editTabs);
+
+  let t = "";
+  for (const w of visible) {
+    t += `<div class="tab-wrap">
+      <button class="tab ${w.id === activeId ? "selected" : ""}" data-tab="${w.id}">${esc(w.name)}</button>
+      ${editTabs ? `<div class="tab-actions">
+        <button class="tab-archive" data-archive="${w.id}" title="Archiver">▢</button>
+        <button class="tab-delete" data-del-workout="${w.id}" title="Supprimer">${pendingDel === w.id ? "Sûr ?" : "✕"}</button>
+      </div>` : ""}
+    </div>`;
+  }
+  t += `<button class="tab add" data-add-workout>+ Ajouter</button>`;
+  if (archived.length)
+    t += `<button class="tab ${activeId === "archived" ? "selected" : ""}" data-tab="archived">Archivés (${archived.length})</button>`;
+  t += `<button class="tab ${activeId === "maxes" ? "selected" : ""}" data-tab="maxes">★ Maxes</button>`;
+  t += `<button class="tab ${activeId === "settings" ? "selected" : ""}" data-tab="settings">⚙</button>`;
+  $("tabs").innerHTML = t;
+
+  $("legend").innerHTML = (typeof activeId !== "number") ? "" :
+    [["var(--green)", "&lt; 2 sem"], ["var(--orange)", "2 sem"], ["var(--red)", "3 sem"], ["var(--gray)", "1 mois+"]]
+      .map(([c, l]) => `<span><span class="dot" style="background:${c}"></span>${l} sans progression</span>`).join("");
+
+  if (activeId === "maxes") renderMaxes();
+  else if (activeId === "archived") renderArchived(archived);
+  else if (activeId === "settings") renderSettings();
+  else if (active) renderWorkout(active);
+  else $("main").innerHTML = "";
+}
+
+function selectOpts(max, sel, label) {
+  let o = `<option value="" ${sel === "" ? "selected" : ""} disabled hidden>${label}</option>`;
+  for (let i = 1; i <= max; i++) o += `<option value="${i}" ${String(sel) === String(i) ? "selected" : ""}>${i}</option>`;
+  return o;
+}
+
+function renderWorkout(w) {
+  let h = `<input class="rename" data-rename value="${esc(w.name)}" placeholder="Nom du workout…">`;
+
+  for (const ex of w.exercises) {
+    const c = stalenessColor(ex.lastChanged);
+    const d = drafts[ex.id] || { w: "", s: "", r: "" };
+    const open = expanded.has(ex.id);
+    const hasData = ex.last.weight > 0;
+    h += `<div class="card">
+      <div class="card-head">
+            <div class="ex-name">${esc(ex.name)}</div>
+            <button class="chart-btn ${open ? "open" : ""}" data-toggle-chart="${ex.id}">${open ? "Graph ▴" : "Graph ▾"}</button>
+            <button class="x-btn ${pendingDelEx === ex.id ? "confirm" : ""}" data-del-ex="${ex.id}">${pendingDelEx === ex.id ? "Sûr ?" : "✕"}</button>
+          </div>
+          <div class="prev" style="border-color:${hasData ? c : "var(--border)"}33">
+            <span class="dot" style="background:${hasData ? c : "var(--border)"}; box-shadow: inset 0 0 0 3px rgba(0,0,0,.45)"></span>
+            <div style="flex:1">
+              <div class="prev-label">Dernier</div>
+              ${hasData
+                ? `<div class="prev-val" style="color:${c}">${fmtW(ex.last.weight)} ${unit()} <small>· ${ex.last.sets}×${ex.last.reps}</small></div>`
+                : `<div class="prev-val" style="color:var(--faint)">—</div>`}
+            </div>
+          </div>
+          ${open ? chartHTML(ex) : ""}
+          <div class="row">
+            <div class="field">
+              <label>sets</label>
+              <select data-draft-s="${ex.id}">${selectOpts(10, d.s, "—")}</select>
+            </div>
+            <div class="field">
+              <label>reps</label>
+              <select data-draft-r="${ex.id}">${selectOpts(30, d.r, "—")}</select>
+            </div>
+            <div class="field">
+              <label>${unit()}</label>
+              <input type="number" inputmode="decimal" step="0.5" placeholder="—" value="${d.w}" data-draft-w="${ex.id}">
+            </div>
+            <button class="log-btn" data-log="${ex.id}">Log</button>
+          </div>
+    </div>`;
+  }
+
+  h += `<div class="add-card">
+    <input class="name-input" placeholder="Nouvel exercice…" value="${esc(addDraft.name)}" data-new-name>
+    <div class="start-label">Point de départ — ce que tu as fait la semaine dernière (optionnel)</div>
+    <div class="row">
+      <div class="field">
+        <label>sets</label>
+        <select data-new-s>${selectOpts(10, addDraft.s, "—")}</select>
+      </div>
+      <div class="field">
+        <label>reps</label>
+        <select data-new-r>${selectOpts(30, addDraft.r, "—")}</select>
+      </div>
+      <div class="field">
+        <label>${unit()}</label>
+        <input type="number" inputmode="decimal" step="0.5" placeholder="—" value="${addDraft.w}" data-new-w>
+      </div>
+      <button class="log-btn" data-add-ex>Ajouter</button>
+    </div>
+  </div>`;
+  $("main").innerHTML = h;
+}
+
+function renderMaxes() {
+  const m = state.maxes;
+  const total = (m.squat.value || 0) + (m.bench.value || 0) + (m.deadlift.value || 0);
+  $("main").innerHTML = `
+    ${[["squat","Squat"],["bench","Bench"],["deadlift","Deadlift"]].map(([k, l]) => {
+      const open = expandedMax.has(k);
+      return `
+      <div class="max-row">
+        <div class="max-top">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div class="max-label">${l}</div>
+            <button class="chart-btn ${open ? "open" : ""}" data-toggle-max="${k}" style="margin:0">${open ? "Graph ▴" : "Graph ▾"}</button>
+          </div>
+          <div><input type="number" inputmode="decimal" step="0.5" value="${fmtNum(disp(m[k].value))}" data-max="${k}"><span class="max-unit">${unit()}</span></div>
+        </div>
+        ${open ? `<div class="max-chart">${maxChartHTML(m[k], k)}</div>` : ""}
+      </div>`;
+    }).join("")}
+    <div class="total-card">
+      <div class="eyebrow" style="margin-bottom:6px">Total</div>
+      <div class="total-num">${fmtW(total)}<small>${unit()}</small></div>
+    </div>
+    <p class="hint">Touche un chiffre pour modifier ton max — chaque changement ajoute un point à la courbe.</p>`;
+}
+
+function renderSettings() {
+  const u = unit();
+  $("main").innerHTML = `
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Unité de poids</div>
+        <div class="setting-sub">Convertit tout l'affichage automatiquement.</div>
+      </div>
+      <div class="seg">
+        <button class="${u === "kg" ? "on" : ""}" data-unit="kg">kg</button>
+        <button class="${u === "lbs" ? "on" : ""}" data-unit="lbs">lbs</button>
+      </div>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Exporter les données</div>
+        <div class="setting-sub">Télécharge un fichier .json avec tout ton log.</div>
+      </div>
+      <button class="pill-btn pill-light" data-export>Exporter</button>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Importer des données</div>
+        <div class="setting-sub">Restaure depuis un fichier .json exporté.</div>
+      </div>
+      <button class="pill-btn pill-light" data-import>Importer</button>
+    </div>
+    <p class="hint">Les données sont stockées en kg — changer d'unité ne modifie rien, juste l'affichage et la saisie.</p>`;
+}
+
+function renderArchived(archived) {
+  $("main").innerHTML = archived.map(w => `
+    <div class="arch-row">
+      <div style="font-size:15px;font-weight:600">${esc(w.name)}</div>
+      <div style="display:flex;gap:8px">
+        <button class="pill-btn pill-light" data-restore="${w.id}">Restaurer</button>
+        <button class="pill-btn pill-red ${pendingDel === w.id ? "confirm" : ""}" data-del-workout="${w.id}">${pendingDel === w.id ? "Sûr ?" : "Supprimer"}</button>
+      </div>
+    </div>`).join("") || `<p class="hint">Aucun workout archivé.</p>`;
+}
+
+/* =================================================================
+   Events
+   ================================================================= */
+function findWorkout(id) { return state.workouts.find(w => w.id === Number(id)); }
+function activeWorkout() { return state.workouts.find(w => w.id === activeId); }
+
+function doExport() {
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "training-log-backup.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function deleteWorkout(id) {
+  state.workouts = state.workouts.filter(w => w.id !== id);
+  if (activeId === id)
+    activeId = state.workouts.find(w => !w.archived)?.id ?? "maxes";
+  save(); render();
+}
+
+function deleteExercise(id) {
+  const w = activeWorkout();
+  w.exercises = w.exercises.filter(x => x.id !== id);
+  expanded.delete(id);
+  save(); render();
+}
+
+document.addEventListener("click", e => {
+  // modal-level clicks
+  if (e.target.id === "modalClose" || e.target.id === "modal") return closeModal();
+  const chip = e.target.closest("[data-metric]");
+  if (chip && modal) {
+    modal.metric = chip.dataset.metric;
+    modal.sel = null;
+    return renderModal();
+  }
+  const zoom = e.target.closest("[data-zoom]");
+  if (zoom && modal) {
+    if (zoom.dataset.zoom === "reset") {
+      [modal.t0, modal.t1] = modal.full;
+      modal.sel = null;
+      return renderModal();
+    }
+    return zoomAt(zoom.dataset.zoom === "in" ? 0.7 : 1.43, (modal.t0 + modal.t1) / 2);
+  }
+
+  const opener = e.target.closest("[data-open-ex],[data-open-max]");
+  if (opener) {
+    if (opener.dataset.openEx)
+      return openModal({ type: "ex", exId: Number(opener.dataset.openEx), metric: opener.dataset.openMetric || "vol" });
+    return openModal({ type: "max", maxKey: opener.dataset.openMax });
+  }
+
+  const el = e.target.closest("[data-tab],[data-add-workout],[data-archive],[data-del-workout],[data-restore],[data-log],[data-del-ex],[data-add-ex],[data-toggle-chart],[data-toggle-max],[data-unit],[data-export],[data-import],#editBtn");
+
+  // any click that isn't the pending delete button cancels the confirmation
+  const keepsPending = el && el.dataset && (
+    (el.dataset.delWorkout && Number(el.dataset.delWorkout) === pendingDel) ||
+    (el.dataset.delEx && Number(el.dataset.delEx) === pendingDelEx));
+  if (!keepsPending && (pendingDel !== null || pendingDelEx !== null)) {
+    pendingDel = null; pendingDelEx = null;
+    render();
+  }
+
+  if (!el) return;
+
+  if (el.id === "editBtn") { editTabs = !editTabs; pendingDel = null; return render(); }
+
+  if (el.dataset.unit) {
+    state.settings.unit = el.dataset.unit;
+    save(); return render();
+  }
+  if (el.dataset.export !== undefined) return doExport();
+  if (el.dataset.import !== undefined) return $("importFile").click();
+
+  if (el.dataset.toggleChart) {
+    const id = Number(el.dataset.toggleChart);
+    expanded.has(id) ? expanded.delete(id) : expanded.add(id);
+    return render();
+  }
+  if (el.dataset.toggleMax) {
+    const k = el.dataset.toggleMax;
+    expandedMax.has(k) ? expandedMax.delete(k) : expandedMax.add(k);
+    return render();
+  }
+  if (el.dataset.tab !== undefined) {
+    activeId = isNaN(el.dataset.tab) ? el.dataset.tab : Number(el.dataset.tab);
+    return render();
+  }
+  if (el.dataset.addWorkout !== undefined) {
+    const w = { id: nid(), name: "Nouveau Workout", archived: false, exercises: [] };
+    state.workouts.push(w);
+    activeId = w.id;
+    save(); return render();
+  }
+  if (el.dataset.archive) {
+    findWorkout(el.dataset.archive).archived = true;
+    if (activeId === Number(el.dataset.archive))
+      activeId = state.workouts.find(w => !w.archived)?.id ?? "maxes";
+    save(); return render();
+  }
+  if (el.dataset.delWorkout) {
+    const id = Number(el.dataset.delWorkout);
+    if (pendingDel === id) { pendingDel = null; return deleteWorkout(id); }
+    pendingDel = id;
+    return render();
+  }
+  if (el.dataset.delEx) {
+    const id = Number(el.dataset.delEx);
+    if (pendingDelEx === id) { pendingDelEx = null; return deleteExercise(id); }
+    pendingDelEx = id;
+    return render();
+  }
+  if (el.dataset.restore) {
+    findWorkout(el.dataset.restore).archived = false;
+    activeId = Number(el.dataset.restore);
+    save(); return render();
+  }
+  if (el.dataset.log) {
+    const exId = Number(el.dataset.log);
+    const d = drafts[exId];
+    if (!d || d.w === "" || d.s === "" || d.r === "") return;
+    const ex = activeWorkout().exercises.find(x => x.id === exId);
+    const weightKg = Math.round(store(parseFloat(d.w)) * 100) / 100;
+    const newSets = parseInt(d.s), newReps = parseInt(d.r);
+    const changed = Math.abs(weightKg - ex.last.weight) > 0.01
+                 || newSets !== ex.last.sets
+                 || newReps !== ex.last.reps;
+    if (changed) ex.lastChanged = Date.now();
+    ex.last = { weight: weightKg, sets: newSets, reps: newReps };
+    (ex.history ??= []).push({ date: Date.now(), ...ex.last });
+    delete drafts[exId];
+    save(); return render();
+  }
+  if (el.dataset.addEx !== undefined) {
+    const name = addDraft.name.trim();
+    if (!name) return;
+    const hasStart = addDraft.s !== "" && addDraft.r !== "" && addDraft.w !== "";
+    const startDate = daysAgo(7);
+    let last = { weight: 0, sets: 0, reps: 0 }, history = [], lastChanged = Date.now();
+    if (hasStart) {
+      const weightKg = Math.round(store(parseFloat(addDraft.w)) * 100) / 100;
+      last = { weight: weightKg, sets: parseInt(addDraft.s), reps: parseInt(addDraft.r) };
+      history = [{ date: startDate, ...last }];
+      lastChanged = startDate;
+    }
+    activeWorkout().exercises.push({ id: nid(), name, last, lastChanged, history });
+    addDraft.name = ""; addDraft.s = ""; addDraft.r = ""; addDraft.w = "";
+    save(); return render();
+  }
+});
+
+document.addEventListener("input", e => {
+  const el = e.target;
+  if (el.dataset.draftW) (drafts[el.dataset.draftW] ??= { w:"", s:"", r:"" }).w = el.value;
+  else if (el.dataset.draftS) (drafts[el.dataset.draftS] ??= { w:"", s:"", r:"" }).s = el.value;
+  else if (el.dataset.draftR) (drafts[el.dataset.draftR] ??= { w:"", s:"", r:"" }).r = el.value;
+  else if (el.dataset.newName !== undefined) addDraft.name = el.value;
+  else if (el.dataset.newS !== undefined) addDraft.s = el.value;
+  else if (el.dataset.newR !== undefined) addDraft.r = el.value;
+  else if (el.dataset.newW !== undefined) addDraft.w = el.value;
+  else if (el.dataset.rename !== undefined) {
+    activeWorkout().name = el.value;
+    $("title").textContent = el.value;
+    save();
+  }
+  else if (el.dataset.max) {
+    const m = state.maxes[el.dataset.max];
+    m.value = Math.round(store(parseFloat(el.value) || 0) * 100) / 100;
+    save();
+    const t = (state.maxes.squat.value||0) + (state.maxes.bench.value||0) + (state.maxes.deadlift.value||0);
+    document.querySelector(".total-num").innerHTML = `${fmtW(t)}<small>${unit()}</small>`;
+  }
+});
+
+document.addEventListener("change", e => {
+  const el = e.target;
+  if (!el.dataset || !el.dataset.max) return;
+  const m = state.maxes[el.dataset.max];
+  const hist = m.history;
+  const lastVal = hist.length ? hist[hist.length - 1].value : null;
+  if (lastVal === null || Math.abs(m.value - lastVal) > 0.01) {
+    hist.push({ date: Date.now(), value: m.value });
+    save(); render();
+  }
+});
+
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && modal) return closeModal();
+  if (e.key === "Enter" && e.target.dataset && e.target.dataset.newName !== undefined)
+    document.querySelector("[data-add-ex]").click();
+});
+
+$("importFile").addEventListener("change", e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (!data.workouts || !data.maxes) throw new Error("format");
+      state = migrate(data);
+      activeId = state.workouts.find(w => !w.archived)?.id ?? "maxes";
+      save(); render();
+    } catch { alert("Fichier de backup invalide."); }
+  };
+  reader.readAsText(file);
+  e.target.value = "";
+});
+
+setupModalGestures();
+render();
+if (!storageOk) console.warn("localStorage indisponible — données en mémoire seulement.");
+</script>
+</body>
+</html>
