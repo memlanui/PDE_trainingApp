@@ -205,6 +205,42 @@ main { flex: 1; overflow-y: auto; padding: 4px 16px 40px; }
   margin-bottom: 8px;
 }
 .ex-name { font-size: 15px; font-weight: 600; flex: 1; }
+.move-btn {
+  background: var(--inset);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--dim);
+  cursor: pointer;
+  width: 30px; height: 30px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0;
+  font-family: inherit;
+  font-size: 15px;
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+.move-btn.active { background: var(--text); color: #0C0D10; border-color: var(--text); }
+.move-arrows { display: flex; gap: 6px; margin-right: 6px; }
+.move-arrows button {
+  background: var(--inset);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  cursor: pointer;
+  width: 30px; height: 30px;
+  font-size: 14px;
+  font-family: inherit;
+  flex-shrink: 0;
+}
+.move-arrows button:disabled { opacity: .3; }
+.move-arrows .move-done {
+  width: auto;
+  padding: 0 12px;
+  background: var(--text);
+  color: #0C0D10;
+  border-color: var(--text);
+  font-weight: 700;
+}
 .x-btn {
   background: var(--inset);
   border: 1px solid var(--border);
@@ -216,8 +252,28 @@ main { flex: 1; overflow-y: auto; padding: 4px 16px 40px; }
   display: flex; align-items: center; justify-content: center;
   padding: 0 9px;
   font-family: inherit;
+  flex-shrink: 0;
 }
 .x-btn.confirm { background: var(--red); border-color: var(--red); color: #fff; font-size: 11px; font-weight: 700; }
+/* delete/archive action menu under an exercise */
+.ex-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.ex-actions button {
+  flex: 1;
+  border: none;
+  border-radius: 13px;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 11px 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+.act-archive { background: #2A2113; color: var(--orange); }
+.act-delete  { background: #2A1517; color: var(--red); }
+.act-cancel  { background: var(--inset); color: var(--dim); border: 1px solid var(--border) !important; }
 .chart-btn {
   background: var(--inset);
   border: 1px solid var(--border);
@@ -724,7 +780,7 @@ const eRepsT = e => e.sets.reduce((a, s) => a + s.r, 0);
 const uniformSets = (n, w, r) => Array.from({ length: n }, () => ({ w, r }));
 
 /* empty exercise factory — no weights/history, ready to be filled in */
-const ex0 = (id, name, notes = "", bw = false) => ({ id, name, notes, bw, last: [], lastChanged: Date.now(), history: [] });
+const ex0 = (id, name, notes = "", bw = false) => ({ id, name, notes, bw, archived: false, last: [], lastChanged: Date.now(), history: [] });
 
 const DEFAULT_STATE = {
   settings: { unit: "kg" },
@@ -793,6 +849,7 @@ function migrate(data) {
     for (const ex of w.exercises) {
       ex.notes ??= "";
       ex.bw ??= false;
+      ex.archived ??= false;
       // old `last` triple -> array of sets
       if (ex.last && !Array.isArray(ex.last)) {
         ex.last = ex.last.weight > 0
@@ -833,7 +890,9 @@ let state = load();
 let activeId = state.workouts.find(w => !w.archived)?.id ?? "maxes";
 let editTabs = false;
 let pendingDel = null;
-let pendingDelEx = null;
+let actionEx = null;     // exId whose archive/delete action menu is open
+let moveEx = null;       // exId whose reorder arrows are shown
+let restoreEx = null;    // archived exId awaiting a target-workout choice
 let logDate = null;                                  // null = today; otherwise timestamp at noon of the chosen day
 const logTs = () => logDate ?? Date.now();
 const drafts = {};                                   // exId -> [{w:"", r:""}, ...]
@@ -1307,8 +1366,10 @@ function render() {
     </div>`;
   }
   t += `<button class="tab add" data-add-workout>+ Ajouter</button>`;
-  if (archived.length)
-    t += `<button class="tab ${activeId === "archived" ? "selected" : ""}" data-tab="archived">Archivés (${archived.length})</button>`;
+  const archEx = state.workouts.flatMap(w => w.exercises.filter(ex => ex.archived).map(ex => ({ ex, from: w })));
+  const archCount = archived.length + archEx.length;
+  if (archCount)
+    t += `<button class="tab ${activeId === "archived" ? "selected" : ""}" data-tab="archived">Archivés (${archCount})</button>`;
   t += `<button class="tab ${activeId === "maxes" ? "selected" : ""}" data-tab="maxes">★ Maxes</button>`;
   t += `<button class="tab ${activeId === "settings" ? "selected" : ""}" data-tab="settings">⚙</button>`;
   $("tabs").innerHTML = t;
@@ -1318,7 +1379,7 @@ function render() {
       .map(([c, l]) => `<span><span class="dot" style="background:${c}"></span>${l}</span>`).join("");
 
   if (activeId === "maxes") renderMaxes();
-  else if (activeId === "archived") renderArchived(archived);
+  else if (activeId === "archived") renderArchived(archived, archEx);
   else if (activeId === "settings") renderSettings();
   else if (active) renderWorkout(active);
   else $("main").innerHTML = "";
@@ -1331,15 +1392,14 @@ function setColsHTML(cols, ref, placeholders, isBw) {
   const wLabel = isBw ? "+" + u : u;
   let html = `<div class="sets-scroll">`;
   cols.forEach((c, i) => {
-    const ph = placeholders && placeholders[i] ? placeholders[i] : null;
-    const wPh = ph ? (isBw && ph.w === 0 ? "0" : fmtW(ph.w)) : (isBw ? "0" : "—");
+    const wPh = isBw ? "0 = PDC" : "—";
     html += `<div class="set-col">
       <div class="set-col-head">
         <span>Set ${i + 1}</span>
         ${cols.length > 1 ? `<button class="rm-set" data-rm-set="${ref}:${i}">✕</button>` : ""}
       </div>
       <span class="f-label">reps</span>
-      <input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="${ph ? ph.r : "—"}" value="${c.r}" data-set-r="${ref}:${i}">
+      <input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="—" value="${c.r}" data-set-r="${ref}:${i}">
       <div class="set-divider"></div>
       <span class="f-label">${wLabel}</span>
       <input type="text" inputmode="decimal" placeholder="${wPh}" value="${c.w}" data-set-w="${ref}:${i}">
@@ -1352,22 +1412,41 @@ function setColsHTML(cols, ref, placeholders, isBw) {
 function renderWorkout(w) {
   let h = `<input class="rename" data-rename value="${esc(w.name)}" placeholder="Nom du workout…">`;
 
-  for (const ex of w.exercises) {
+  const live = w.exercises.filter(ex => !ex.archived);
+  live.forEach((ex, idx) => {
     const c = statusColor(ex);
-    if (!drafts[ex.id])
-      drafts[ex.id] = (ex.last.length ? ex.last : [0]).map(() => ({ w: "", r: "" }));
+    if (!drafts[ex.id]) {
+      // prefill with the last session's actual values (editable) so re-logging is one tap
+      // and there's no "is this filled or just a placeholder?" ambiguity
+      drafts[ex.id] = ex.last.length
+        ? ex.last.map(s => ({ w: ex.bw && s.w === 0 ? "" : fmtNum(disp(s.w)), r: String(s.r) }))
+        : [{ w: "", r: "" }];
+    }
     const open = expanded.has(ex.id);
     const ne = newestEntry(ex);
     const hasData = !!ne;
     const e1 = hasData ? fmtW(eE1RM(ne)) : null;
     const bwMissing = ex.bw && !(state.bodyweight > 0);
+    const moving = moveEx === ex.id;
     h += `<div class="card">
       <div class="card-head">
+        ${moving
+          ? `<div class="move-arrows">
+               <button data-move="${ex.id}:up" ${idx === 0 ? "disabled" : ""}>▲</button>
+               <button data-move="${ex.id}:down" ${idx === live.length - 1 ? "disabled" : ""}>▼</button>
+               <button class="move-done" data-move-mode="${ex.id}" title="Terminer">✓ Fait</button>
+             </div>`
+          : `<button class="move-btn" data-move-mode="${ex.id}" title="Réordonner">≡</button>`}
         <div class="ex-name">${esc(ex.name)}</div>
         <button class="chart-btn ${ex.bw ? "open" : ""}" data-bw-toggle="${ex.id}" title="Exo au poids de corps">PDC</button>
         <button class="chart-btn ${open ? "open" : ""}" data-toggle-chart="${ex.id}">${open ? "Graph ▴" : "Graph ▾"}</button>
-        <button class="x-btn ${pendingDelEx === ex.id ? "confirm" : ""}" data-del-ex="${ex.id}">${pendingDelEx === ex.id ? "Sûr ?" : "✕"}</button>
+        <button class="x-btn ${actionEx === ex.id ? "confirm" : ""}" data-ex-actions="${ex.id}">✕</button>
       </div>
+      ${actionEx === ex.id ? `<div class="ex-actions">
+        <button class="act-archive" data-archive-ex="${ex.id}">Archiver</button>
+        <button class="act-delete" data-del-ex="${ex.id}">Supprimer</button>
+        <button class="act-cancel" data-cancel-action>Annuler</button>
+      </div>` : ""}
       <input class="notes-input" placeholder="Notes — inclinaison, prise, tempo…" value="${esc(ex.notes || "")}" data-notes="${ex.id}">
       <div class="prev" style="border-color:${hasData ? c : "var(--border)"}33">
         <span class="dot" style="background:${hasData ? c : "var(--border)"}; box-shadow: inset 0 0 0 3px rgba(0,0,0,.45)"></span>
@@ -1381,10 +1460,11 @@ function renderWorkout(w) {
       </div>
       ${bwMissing ? `<div style="font-size:11px;color:var(--orange);margin:-6px 2px 10px">⚠ Renseigne ton poids de corps dans ★ Maxes pour des graphs justes</div>` : ""}
       ${open ? chartHTML(ex) : ""}
+      ${hasData ? `<div style="font-size:10px;color:var(--faint);margin:2px 2px 5px">Pré-rempli avec ta dernière séance — ajuste puis Log</div>` : ""}
       ${setColsHTML(drafts[ex.id], ex.id, ex.last, ex.bw)}
       <button class="log-btn" data-log="${ex.id}">Log</button>
     </div>`;
-  }
+  });
 
   h += `<div class="add-card">
     <input class="name-input" placeholder="Nouvel exercice…" value="${esc(addDraft.name)}" data-new-name>
@@ -1481,15 +1561,42 @@ function renderSettings() {
     <p class="hint">Les données sont stockées en kg — changer d'unité ne modifie rien, juste l'affichage et la saisie.</p>`;
 }
 
-function renderArchived(archived) {
-  $("main").innerHTML = archived.map(w => `
-    <div class="arch-row">
-      <div style="font-size:15px;font-weight:600">${esc(w.name)}</div>
-      <div style="display:flex;gap:8px">
-        <button class="pill-btn pill-light" data-restore="${w.id}">Restaurer</button>
-        <button class="pill-btn pill-red ${pendingDel === w.id ? "confirm" : ""}" data-del-workout="${w.id}">${pendingDel === w.id ? "Sûr ?" : "Supprimer"}</button>
-      </div>
-    </div>`).join("") || `<p class="hint">Aucun workout archivé.</p>`;
+function renderArchived(archived, archEx) {
+  let h = "";
+  if (archived.length) {
+    h += `<div style="font-family:'Oswald',sans-serif;font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint);margin:4px 2px 10px">Workouts</div>`;
+    h += archived.map(w => `
+      <div class="arch-row">
+        <div style="font-size:15px;font-weight:600">${esc(w.name)}</div>
+        <div style="display:flex;gap:8px">
+          <button class="pill-btn pill-light" data-restore="${w.id}">Restaurer</button>
+          <button class="pill-btn pill-red ${pendingDel === w.id ? "confirm" : ""}" data-del-workout="${w.id}">${pendingDel === w.id ? "Sûr ?" : "Supprimer"}</button>
+        </div>
+      </div>`).join("");
+  }
+  if (archEx.length) {
+    const targets = state.workouts.filter(w => !w.archived);
+    h += `<div style="font-family:'Oswald',sans-serif;font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint);margin:18px 2px 10px">Exercices</div>`;
+    h += archEx.map(({ ex, from }) => `
+      <div class="arch-row" style="flex-direction:column;align-items:stretch;gap:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div style="font-size:15px;font-weight:600">${esc(ex.name)}</div>
+            <div style="font-size:11px;color:var(--faint);margin-top:1px">de « ${esc(from.name)} »</div>
+          </div>
+          <button class="pill-btn pill-red ${pendingDel === ex.id ? "confirm" : ""}" data-del-ex="${ex.id}">${pendingDel === ex.id ? "Sûr ?" : "Supprimer"}</button>
+        </div>
+        ${restoreEx === ex.id
+          ? `<div style="display:flex;flex-direction:column;gap:6px">
+               <div style="font-size:12px;color:var(--dim)">Restaurer dans quel workout ?</div>
+               <div style="display:flex;gap:6px;flex-wrap:wrap">
+                 ${targets.map(w => `<button class="pill-btn pill-light" data-restore-ex="${ex.id}:${w.id}">${esc(w.name)}</button>`).join("")}
+               </div>
+             </div>`
+          : `<button class="pill-btn pill-light" data-restore-ex-pick="${ex.id}" style="align-self:flex-start">Restaurer</button>`}
+      </div>`).join("");
+  }
+  $("main").innerHTML = h || `<p class="hint">Rien d'archivé.</p>`;
 }
 
 /* =================================================================
@@ -1534,10 +1641,47 @@ function deleteWorkout(id) {
 }
 
 function deleteExercise(id) {
-  const w = activeWorkout();
-  w.exercises = w.exercises.filter(x => x.id !== id);
+  for (const w of state.workouts)
+    w.exercises = w.exercises.filter(x => x.id !== id);
   expanded.delete(id);
   delete drafts[id];
+  pendingDel = null; actionEx = null; restoreEx = null;
+  save(); render();
+}
+
+function archiveExercise(id) {
+  const ex = findEx(id);
+  if (ex) { ex.archived = true; ex.originWorkout = (state.workouts.find(w => w.exercises.includes(ex)) || {}).name || ""; }
+  actionEx = null;
+  save(); render();
+}
+
+/* move an exercise up/down among the LIVE (non-archived) exercises of its workout */
+function moveExercise(id, dir) {
+  const w = state.workouts.find(ww => ww.exercises.some(x => x.id === id));
+  if (!w) return;
+  const liveIdx = w.exercises.map((x, i) => ({ x, i })).filter(o => !o.x.archived);
+  const pos = liveIdx.findIndex(o => o.x.id === id);
+  const swapWith = dir === "up" ? pos - 1 : pos + 1;
+  if (swapWith < 0 || swapWith >= liveIdx.length) return;
+  const a = liveIdx[pos].i, b = liveIdx[swapWith].i;
+  [w.exercises[a], w.exercises[b]] = [w.exercises[b], w.exercises[a]];
+  save(); render();
+}
+
+/* restore an archived exercise into a chosen workout */
+function restoreExercise(exId, targetWorkoutId) {
+  let ex = null;
+  for (const w of state.workouts) {
+    const found = w.exercises.find(x => x.id === exId);
+    if (found) { ex = found; w.exercises = w.exercises.filter(x => x.id !== exId); break; }
+  }
+  if (!ex) return;
+  ex.archived = false;
+  const target = state.workouts.find(w => w.id === targetWorkoutId);
+  if (target) target.exercises.push(ex);
+  restoreEx = null;
+  activeId = targetWorkoutId;
   save(); render();
 }
 
@@ -1566,22 +1710,34 @@ document.addEventListener("click", e => {
     return openModal({ type: "max", maxKey: opener.dataset.openMax });
   }
 
-  const el = e.target.closest("[data-tab],[data-add-workout],[data-archive],[data-del-workout],[data-restore],[data-log],[data-del-ex],[data-add-ex],[data-add-set],[data-rm-set],[data-toggle-chart],[data-toggle-max],[data-bw-toggle],[data-unit],[data-export],[data-import],#editBtn");
+  const el = e.target.closest("[data-tab],[data-add-workout],[data-archive],[data-del-workout],[data-restore],[data-restore-ex],[data-restore-ex-pick],[data-log],[data-ex-actions],[data-archive-ex],[data-del-ex],[data-cancel-action],[data-move-mode],[data-move],[data-add-ex],[data-add-set],[data-rm-set],[data-toggle-chart],[data-toggle-max],[data-bw-toggle],[data-unit],[data-export],[data-import],#editBtn");
 
   const keepsPending = el && el.dataset && (
     (el.dataset.delWorkout && Number(el.dataset.delWorkout) === pendingDel) ||
-    (el.dataset.delEx && Number(el.dataset.delEx) === pendingDelEx));
-  if (!keepsPending && (pendingDel !== null || pendingDelEx !== null)) {
-    pendingDel = null; pendingDelEx = null;
+    (el.dataset.delEx && Number(el.dataset.delEx) === pendingDel) ||
+    el.dataset.exActions !== undefined ||
+    el.dataset.archiveEx !== undefined ||
+    el.dataset.cancelAction !== undefined);
+  if (!keepsPending && pendingDel !== null) {
+    pendingDel = null;
+    render();
+  }
+  // close an open action menu when clicking something unrelated to it
+  if (actionEx !== null && el && el.dataset &&
+      el.dataset.exActions === undefined && el.dataset.archiveEx === undefined &&
+      el.dataset.delEx === undefined && el.dataset.cancelAction === undefined) {
+    actionEx = null;
     render();
   }
 
   if (!el) return;
 
-  if (el.id === "editBtn") { editTabs = !editTabs; pendingDel = null; return render(); }
+  if (el.id === "editBtn") { editTabs = !editTabs; pendingDel = null; actionEx = null; moveEx = null; return render(); }
 
   if (el.dataset.unit) {
     state.settings.unit = el.dataset.unit;
+    // drop prefilled drafts so columns re-derive in the new unit (avoid showing kg numbers as lbs)
+    for (const k in drafts) delete drafts[k];
     save(); return render();
   }
   if (el.dataset.export !== undefined) return doExport();
@@ -1610,6 +1766,7 @@ document.addEventListener("click", e => {
   }
   if (el.dataset.tab !== undefined) {
     activeId = isNaN(el.dataset.tab) ? el.dataset.tab : Number(el.dataset.tab);
+    actionEx = null; moveEx = null; restoreEx = null;
     return render();
   }
   if (el.dataset.addWorkout !== undefined) {
@@ -1630,11 +1787,44 @@ document.addEventListener("click", e => {
     pendingDel = id;
     return render();
   }
+  // exercise reorder
+  if (el.dataset.moveMode !== undefined) {
+    const id = Number(el.dataset.moveMode);
+    moveEx = moveEx === id ? null : id;
+    return render();
+  }
+  if (el.dataset.move) {
+    const [id, dir] = el.dataset.move.split(":");
+    return moveExercise(Number(id), dir);
+  }
+  // exercise actions: open the archive/delete menu
+  if (el.dataset.exActions !== undefined) {
+    const id = Number(el.dataset.exActions);
+    actionEx = actionEx === id ? null : id;
+    moveEx = null;
+    return render();
+  }
+  if (el.dataset.cancelAction !== undefined) {
+    actionEx = null;
+    return render();
+  }
+  if (el.dataset.archiveEx) {
+    return archiveExercise(Number(el.dataset.archiveEx));
+  }
   if (el.dataset.delEx) {
     const id = Number(el.dataset.delEx);
-    if (pendingDelEx === id) { pendingDelEx = null; return deleteExercise(id); }
-    pendingDelEx = id;
+    if (pendingDel === id) return deleteExercise(id);
+    pendingDel = id;
     return render();
+  }
+  // restore an archived exercise: pick target workout
+  if (el.dataset.restoreExPick) {
+    restoreEx = Number(el.dataset.restoreExPick);
+    return render();
+  }
+  if (el.dataset.restoreEx) {
+    const [exId, wId] = el.dataset.restoreEx.split(":").map(Number);
+    return restoreExercise(exId, wId);
   }
   if (el.dataset.restore) {
     findWorkout(el.dataset.restore).archived = false;
