@@ -713,19 +713,22 @@ const daysAgo = n => Date.now() - n * DAY;
 let uid = Date.now();
 const nid = () => ++uid;
 
-/* entry helpers */
-const eVol   = e => e.sets.reduce((a, s) => a + s.w * s.r, 0);
-const eTopW  = e => e.sets.length ? Math.max(...e.sets.map(s => s.w)) : 0;
+/* entry helpers — for bodyweight exos, each entry snapshots `bw` (kg) at log time
+   and set weights store the ADDED load; total set load = bw + added */
+const setLoad = (e, s) => s.w + (e.bw || 0);
+const eVol   = e => e.sets.reduce((a, s) => a + setLoad(e, s) * s.r, 0);
+const eTopW  = e => e.sets.length ? Math.max(...e.sets.map(s => setLoad(e, s))) : 0;
 const eSetsN = e => e.sets.length;
 const eRepsT = e => e.sets.reduce((a, s) => a + s.r, 0);
 
 const uniformSets = (n, w, r) => Array.from({ length: n }, () => ({ w, r }));
 
 /* empty exercise factory — no weights/history, ready to be filled in */
-const ex0 = (id, name, notes = "") => ({ id, name, notes, last: [], lastChanged: Date.now(), history: [] });
+const ex0 = (id, name, notes = "", bw = false) => ({ id, name, notes, bw, last: [], lastChanged: Date.now(), history: [] });
 
 const DEFAULT_STATE = {
   settings: { unit: "kg" },
+  bodyweight: 0,
   workouts: [
     { id: 1, name: "Upper", archived: false, exercises: [
       ex0(101, "Bench", "3×6"),
@@ -751,7 +754,7 @@ const DEFAULT_STATE = {
       ex0(304, "Lat raises machine", "3×12"),
       ex0(305, "Triceps extension", "3×10"),
       ex0(306, "Skullcrushers", "3×10 · superset avec Dips"),
-      ex0(307, "Dips", "3×10 · superset avec Skullcrushers"),
+      ex0(307, "Dips", "3×10 · superset avec Skullcrushers", true),
     ]},
     { id: 4, name: "Pull", archived: false, exercises: [
       ex0(401, "Rowing horizontal", "3×10 · triple superset"),
@@ -785,9 +788,11 @@ function toSetsEntry(e) {
 
 function migrate(data) {
   data.settings ??= { unit: "kg" };
+  data.bodyweight ??= 0;
   for (const w of data.workouts) {
     for (const ex of w.exercises) {
       ex.notes ??= "";
+      ex.bw ??= false;
       // old `last` triple -> array of sets
       if (ex.last && !Array.isArray(ex.last)) {
         ex.last = ex.last.weight > 0
@@ -832,7 +837,7 @@ let pendingDelEx = null;
 let logDate = null;                                  // null = today; otherwise timestamp at noon of the chosen day
 const logTs = () => logDate ?? Date.now();
 const drafts = {};                                   // exId -> [{w:"", r:""}, ...]
-const addDraft = { name: "", sets: [{ w: "", r: "" }] };
+const addDraft = { name: "", bw: false, sets: [{ w: "", r: "" }] };
 const expanded = new Set();
 const expandedMax = new Set();
 
@@ -857,8 +862,8 @@ const fmtW = kg => fmtNum(disp(kg));
    covers both sides of powerbuilding.
    ================================================================= */
 const EPS = 1e-6;
-const sE1RM = sets => sets.length ? Math.max(...sets.map(s => s.w * (1 + s.r / 30))) : 0;
-const eE1RM = e => sE1RM(e.sets);
+const eE1RM = e => e.sets.length ? Math.max(...e.sets.map(s => setLoad(e, s) * (1 + s.r / 30))) : 0;
+const newestEntry = ex => ex.history.length ? ex.history.reduce((a, b) => (b.date > a.date ? b : a)) : null;
 
 function improved(prev, curr) {
   return eE1RM(curr) > eE1RM(prev) + EPS || eVol(curr) > eVol(prev) + EPS;
@@ -888,10 +893,19 @@ function statusColor(ex) {
   return "var(--black)";
 }
 
-/* "Dernier" label from a sets array */
-function lastLabel(sets) {
-  const uniqueW = [...new Set(sets.map(s => s.w))];
+/* "Dernier" label from an entry */
+function lastLabel(entry, isBw) {
+  const sets = entry.sets;
   const reps = sets.map(s => s.r).join("/");
+  if (isBw) {
+    const uniq = [...new Set(sets.map(s => s.w))];
+    if (uniq.length === 1) {
+      const add = uniq[0];
+      return (add > 0 ? `PDC +${fmtW(add)} ${unit()}` : "PDC") + ` <small>· ${reps}</small>`;
+    }
+    return sets.map(s => `${s.w > 0 ? "+" + fmtW(s.w) : "PDC"}×${s.r}`).join(" <small>·</small> ");
+  }
+  const uniqueW = [...new Set(sets.map(s => s.w))];
   if (uniqueW.length === 1)
     return `${fmtW(uniqueW[0])} ${unit()} <small>· ${reps}</small>`;
   return sets.map(s => `${fmtW(s.w)}×${s.r}`).join(" <small>·</small> ");
@@ -1312,11 +1326,13 @@ function render() {
 
 /* set columns editor — used both for logging and for the add-exercise starting point.
    prefix: "set" for drafts[exId], "nset" for addDraft. ref: exId or "new". */
-function setColsHTML(cols, ref, placeholders) {
+function setColsHTML(cols, ref, placeholders, isBw) {
   const u = unit();
+  const wLabel = isBw ? "+" + u : u;
   let html = `<div class="sets-scroll">`;
   cols.forEach((c, i) => {
     const ph = placeholders && placeholders[i] ? placeholders[i] : null;
+    const wPh = ph ? (isBw && ph.w === 0 ? "0" : fmtW(ph.w)) : (isBw ? "0" : "—");
     html += `<div class="set-col">
       <div class="set-col-head">
         <span>Set ${i + 1}</span>
@@ -1325,8 +1341,8 @@ function setColsHTML(cols, ref, placeholders) {
       <span class="f-label">reps</span>
       <input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="${ph ? ph.r : "—"}" value="${c.r}" data-set-r="${ref}:${i}">
       <div class="set-divider"></div>
-      <span class="f-label">${u}</span>
-      <input type="text" inputmode="decimal" placeholder="${ph ? fmtW(ph.w) : "—"}" value="${c.w}" data-set-w="${ref}:${i}">
+      <span class="f-label">${wLabel}</span>
+      <input type="text" inputmode="decimal" placeholder="${wPh}" value="${c.w}" data-set-w="${ref}:${i}">
     </div>`;
   });
   html += `<button class="add-set" data-add-set="${ref}">+</button></div>`;
@@ -1341,11 +1357,14 @@ function renderWorkout(w) {
     if (!drafts[ex.id])
       drafts[ex.id] = (ex.last.length ? ex.last : [0]).map(() => ({ w: "", r: "" }));
     const open = expanded.has(ex.id);
-    const hasData = ex.last.length > 0;
-    const e1 = hasData ? fmtW(sE1RM(ex.last)) : null;
+    const ne = newestEntry(ex);
+    const hasData = !!ne;
+    const e1 = hasData ? fmtW(eE1RM(ne)) : null;
+    const bwMissing = ex.bw && !(state.bodyweight > 0);
     h += `<div class="card">
       <div class="card-head">
         <div class="ex-name">${esc(ex.name)}</div>
+        <button class="chart-btn ${ex.bw ? "open" : ""}" data-bw-toggle="${ex.id}" title="Exo au poids de corps">PDC</button>
         <button class="chart-btn ${open ? "open" : ""}" data-toggle-chart="${ex.id}">${open ? "Graph ▴" : "Graph ▾"}</button>
         <button class="x-btn ${pendingDelEx === ex.id ? "confirm" : ""}" data-del-ex="${ex.id}">${pendingDelEx === ex.id ? "Sûr ?" : "✕"}</button>
       </div>
@@ -1355,29 +1374,52 @@ function renderWorkout(w) {
         <div style="flex:1">
           <div class="prev-label">Dernier</div>
           ${hasData
-            ? `<div class="prev-val" style="color:${c}">${lastLabel(ex.last)}</div>
+            ? `<div class="prev-val" style="color:${c}">${lastLabel(ne, ex.bw)}</div>
                <div style="font-size:11px;color:var(--faint);margin-top:1px">e1RM est. ${e1} ${unit()}</div>`
             : `<div class="prev-val" style="color:var(--faint)">—</div>`}
         </div>
       </div>
+      ${bwMissing ? `<div style="font-size:11px;color:var(--orange);margin:-6px 2px 10px">⚠ Renseigne ton poids de corps dans ★ Maxes pour des graphs justes</div>` : ""}
       ${open ? chartHTML(ex) : ""}
-      ${setColsHTML(drafts[ex.id], ex.id, ex.last)}
+      ${setColsHTML(drafts[ex.id], ex.id, ex.last, ex.bw)}
       <button class="log-btn" data-log="${ex.id}">Log</button>
     </div>`;
   }
 
   h += `<div class="add-card">
     <input class="name-input" placeholder="Nouvel exercice…" value="${esc(addDraft.name)}" data-new-name>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--dim);margin-bottom:9px;cursor:pointer">
+      <input type="checkbox" data-new-bw ${addDraft.bw ? "checked" : ""} style="width:17px;height:17px;accent-color:#F2F3F5">
+      Exo au poids de corps (tractions, dips…)
+    </label>
     <div class="start-label">Point de départ — ce que tu as fait la semaine dernière (optionnel)</div>
-    ${setColsHTML(addDraft.sets, "new", null)}
+    ${setColsHTML(addDraft.sets, "new", null, addDraft.bw)}
     <button class="log-btn" data-add-ex>Ajouter l'exercice</button>
   </div>`;
   $("main").innerHTML = h;
 }
 
+/* bodyweight ratios (unit-independent: kg/kg) */
+function ratioTxt(vKg) {
+  return state.bodyweight > 0 && vKg > 0 ? (vKg / state.bodyweight).toFixed(2) + "× PDC" : "";
+}
+function totalRatioTxt() {
+  const t = (state.maxes.squat.value || 0) + (state.maxes.bench.value || 0) + (state.maxes.deadlift.value || 0);
+  return state.bodyweight > 0 && t > 0 ? (t / state.bodyweight).toFixed(2) + "× poids de corps" : "";
+}
+function updateRatios() {
+  for (const k of ["squat", "bench", "deadlift"]) {
+    const el = document.getElementById("ratio-" + k);
+    if (el) el.textContent = ratioTxt(state.maxes[k].value);
+  }
+  const el = document.getElementById("ratio-total");
+  if (el) el.textContent = totalRatioTxt();
+}
+
 function renderMaxes() {
   const m = state.maxes;
   const total = (m.squat.value || 0) + (m.bench.value || 0) + (m.deadlift.value || 0);
+  const bw = state.bodyweight;
   $("main").innerHTML = `
     ${[["squat","Squat"],["bench","Bench"],["deadlift","Deadlift"]].map(([k, l]) => {
       const open = expandedMax.has(k);
@@ -1390,12 +1432,21 @@ function renderMaxes() {
           </div>
           <div><input type="text" inputmode="decimal" value="${fmtNum(disp(m[k].value))}" data-max="${k}"><span class="max-unit">${unit()}</span></div>
         </div>
+        <div id="ratio-${k}" style="text-align:right;font-size:11px;color:#5AC8FA;margin-top:2px;min-height:14px">${ratioTxt(m[k].value)}</div>
         ${open ? `<div class="max-chart">${maxChartHTML(m[k], k)}</div>` : ""}
       </div>`;
     }).join("")}
+    <div class="max-row">
+      <div class="max-top">
+        <div class="max-label">Poids de corps</div>
+        <div><input type="text" inputmode="decimal" value="${state.bodyweight > 0 ? fmtNum(disp(state.bodyweight)) : ""}" placeholder="—" data-bodyweight><span class="max-unit">${unit()}</span></div>
+      </div>
+      <div style="font-size:11px;color:var(--faint);margin-top:4px">Utilisé pour les exos PDC et les ratios de force relative</div>
+    </div>
     <div class="total-card">
       <div class="eyebrow" style="margin-bottom:6px">Total</div>
       <div class="total-num">${fmtW(total)}<small>${unit()}</small></div>
+      <div id="ratio-total" style="font-size:13px;color:#5AC8FA;margin-top:6px;min-height:16px">${totalRatioTxt()}</div>
     </div>
     <p class="hint">Touche un chiffre pour modifier ton max — chaque changement ajoute un point à la courbe.</p>`;
 }
@@ -1453,11 +1504,17 @@ function colsOf(ref) { return ref === "new" ? addDraft.sets : drafts[Number(ref)
 /* parses "172,5" and "172.5" alike (iOS French keyboards type commas) */
 const num = s => parseFloat(String(s).trim().replace(",", "."));
 
-/* converts complete draft columns (display unit) to a clean sets array (kg) */
-function draftToSets(cols) {
+/* converts complete draft columns (display unit) to a clean sets array (kg)
+   bodyweight exos: weight = ADDED load, 0 or empty allowed */
+function draftToSets(cols, isBw) {
   return (cols || [])
-    .filter(c => num(c.w) > 0 && parseInt(c.r) > 0)
-    .map(c => ({ w: Math.round(store(num(c.w)) * 100) / 100, r: parseInt(c.r) }));
+    .filter(c => parseInt(c.r) > 0 && (isBw ? (c.w === "" || num(c.w) >= 0) : num(c.w) > 0))
+    .map(c => ({
+      w: isBw
+        ? Math.max(0, Math.round(store(num(c.w) || 0) * 100) / 100)
+        : Math.round(store(num(c.w)) * 100) / 100,
+      r: parseInt(c.r),
+    }));
 }
 
 function doExport() {
@@ -1509,7 +1566,7 @@ document.addEventListener("click", e => {
     return openModal({ type: "max", maxKey: opener.dataset.openMax });
   }
 
-  const el = e.target.closest("[data-tab],[data-add-workout],[data-archive],[data-del-workout],[data-restore],[data-log],[data-del-ex],[data-add-ex],[data-add-set],[data-rm-set],[data-toggle-chart],[data-toggle-max],[data-unit],[data-export],[data-import],#editBtn");
+  const el = e.target.closest("[data-tab],[data-add-workout],[data-archive],[data-del-workout],[data-restore],[data-log],[data-del-ex],[data-add-ex],[data-add-set],[data-rm-set],[data-toggle-chart],[data-toggle-max],[data-bw-toggle],[data-unit],[data-export],[data-import],#editBtn");
 
   const keepsPending = el && el.dataset && (
     (el.dataset.delWorkout && Number(el.dataset.delWorkout) === pendingDel) ||
@@ -1584,17 +1641,24 @@ document.addEventListener("click", e => {
     activeId = Number(el.dataset.restore);
     save(); return render();
   }
+  if (el.dataset.bwToggle) {
+    const ex = findEx(el.dataset.bwToggle);
+    ex.bw = !ex.bw;
+    save(); return render();
+  }
   if (el.dataset.log) {
     const exId = Number(el.dataset.log);
-    const sets = draftToSets(drafts[exId]);
+    const ex = activeWorkout().exercises.find(x => x.id === exId);
+    const sets = draftToSets(drafts[exId], ex.bw);
     if (!sets.length) {
-      el.textContent = "Remplis reps + poids";
+      el.textContent = ex.bw ? "Remplis les reps" : "Remplis reps + poids";
       el.classList.add("err");
       setTimeout(() => { el.textContent = "Log"; el.classList.remove("err"); }, 1300);
       return;
     }
-    const ex = activeWorkout().exercises.find(x => x.id === exId);
-    (ex.history ??= []).push({ date: logTs(), sets });
+    const entry = { date: logTs(), sets };
+    if (ex.bw) entry.bw = state.bodyweight || 0;   // snapshot, so later BW changes don't rewrite history
+    (ex.history ??= []).push(entry);
     // `last` = the chronologically newest entry (a backdated log must not overwrite a newer one)
     const newest = ex.history.reduce((a, b) => (b.date > a.date ? b : a));
     const changed = JSON.stringify(newest.sets) !== JSON.stringify(ex.last);
@@ -1606,13 +1670,19 @@ document.addEventListener("click", e => {
   if (el.dataset.addEx !== undefined) {
     const name = addDraft.name.trim();
     if (!name) return;
-    const sets = draftToSets(addDraft.sets);
+    const sets = draftToSets(addDraft.sets, addDraft.bw);
     const startDate = logDate ?? daysAgo(7);   // selected date if set, else "last week"
-    const ex = sets.length
-      ? { id: nid(), name, notes: "", last: sets, lastChanged: startDate, history: [{ date: startDate, sets }] }
-      : { id: nid(), name, notes: "", last: [], lastChanged: Date.now(), history: [] };
+    let ex;
+    if (sets.length) {
+      const entry = { date: startDate, sets };
+      if (addDraft.bw) entry.bw = state.bodyweight || 0;
+      ex = { id: nid(), name, notes: "", bw: addDraft.bw, last: sets, lastChanged: startDate, history: [entry] };
+    } else {
+      ex = { id: nid(), name, notes: "", bw: addDraft.bw, last: [], lastChanged: Date.now(), history: [] };
+    }
     activeWorkout().exercises.push(ex);
     addDraft.name = "";
+    addDraft.bw = false;
     addDraft.sets = [{ w: "", r: "" }];
     save(); return render();
   }
@@ -1632,6 +1702,15 @@ document.addEventListener("input", e => {
     const ex = findEx(el.dataset.notes);
     if (ex) { ex.notes = el.value; save(); }
   }
+  else if (el.dataset.bodyweight !== undefined) {
+    state.bodyweight = Math.max(0, Math.round(store(num(el.value) || 0) * 100) / 100);
+    save();
+    updateRatios();
+  }
+  else if (el.dataset.newBw !== undefined) {
+    addDraft.bw = el.checked;
+    render();   // refresh the +kg label on the starting-point columns
+  }
   else if (el.dataset.newName !== undefined) addDraft.name = el.value;
   else if (el.dataset.rename !== undefined) {
     activeWorkout().name = el.value;
@@ -1644,6 +1723,7 @@ document.addEventListener("input", e => {
     save();
     const t = (state.maxes.squat.value||0) + (state.maxes.bench.value||0) + (state.maxes.deadlift.value||0);
     document.querySelector(".total-num").innerHTML = `${fmtW(t)}<small>${unit()}</small>`;
+    updateRatios();
   }
 });
 
