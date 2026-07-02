@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
@@ -486,6 +486,7 @@ input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-app
 }
 .log-btn:active { opacity: .7; }
 .log-btn.err { background: var(--red); color: #fff; }
+.log-btn.saved { background: var(--green); color: #fff; }
 
 /* add exercise */
 .add-card {
@@ -723,7 +724,7 @@ input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-app
       <h1 id="title"></h1>
     </div>
     <div class="hdr-actions">
-      <button class="today-btn" id="todayBtn" hidden>Auj.</button>
+      <button class="today-btn" id="todayBtn" hidden>Today</button>
       <label class="date-pill" id="datePill">
         <span id="dateLabel">📅</span>
         <input type="date" id="logDateInput">
@@ -750,8 +751,8 @@ input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-app
     <div class="modal-controls">
       <button class="zoom-btn" data-zoom="out">−</button>
       <button class="zoom-btn" data-zoom="in">+</button>
-      <button class="zoom-btn zoom-reset" data-zoom="reset">Tout</button>
-      <div class="modal-hint">Touche un point pour sa valeur<br>Glisse pour naviguer · pince ou molette pour zoomer</div>
+      <button class="zoom-btn zoom-reset" data-zoom="reset">All</button>
+      <div class="modal-hint">Tap a point for its value<br>Drag to pan · pinch or scroll to zoom</div>
     </div>
   </div>
 </div>
@@ -760,14 +761,47 @@ input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-app
 
 <script>
 /* =================================================================
-   State + persistence  (all weights stored in KG internally)
-   Entry format: { date, sets: [{ w: kg, r: reps }, ...] }
+   Backup / storage schema  (STABLE CONTRACT — do not rename fields)
+   -----------------------------------------------------------------
+   The same versioned shape is used for both the .json export and
+   localStorage, so a backup is always loadable by future versions.
+   Rules for forward-compatibility:
+     • Field names below NEVER change meaning or get removed.
+     • New versions may only ADD optional fields; readers ignore
+       unknown fields, so old and new files stay cross-compatible.
+     • All weights are in KILOGRAMS. Unit preference is display-only
+       and intentionally NOT part of the backup.
+     • Derived values (last set, staleness date, internal ids) are
+       NOT stored — they are recomputed on load from `history`.
+
+   {
+     format: "training-log",            // file identity
+     schema: 1,                         // bump only on a breaking change
+     exportedAt: <ms epoch>,
+     bodyweight: <kg>,                  // 0 if unset
+     workouts: [{
+       name, archived,
+       exercises: [{
+         name, notes,
+         bodyweight: <bool>,            // is this a bodyweight movement
+         archived: <bool>,
+         history: [{
+           date: <ms epoch>,
+           sets: [{ weight: <kg added load>, reps: <int> }],
+           bodyweightAtTime: <kg>       // present only for bodyweight exos
+         }]
+       }]
+     }],
+     maxes: { squat|bench|deadlift: { value: <kg>, history: [{date,value}] } }
+   }
    ================================================================= */
 const DAY = 86400000;
 const MONTH = 30 * DAY;
 const daysAgo = n => Date.now() - n * DAY;
 let uid = Date.now();
 const nid = () => ++uid;
+const SCHEMA = 1;
+const FORMAT = "training-log";
 
 /* entry helpers — for bodyweight exos, each entry snapshots `bw` (kg) at log time
    and set weights store the ADDED load; total set load = bw + added */
@@ -783,49 +817,48 @@ const uniformSets = (n, w, r) => Array.from({ length: n }, () => ({ w, r }));
 const ex0 = (id, name, notes = "", bw = false) => ({ id, name, notes, bw, archived: false, last: [], lastChanged: Date.now(), history: [] });
 
 const DEFAULT_STATE = {
-  settings: { unit: "kg" },
   bodyweight: 0,
   workouts: [
     { id: 1, name: "Upper", archived: false, exercises: [
       ex0(101, "Bench", "3×6"),
-      ex0(102, "Rowing horizontal", "3×10"),
+      ex0(102, "Seated row", "3×10"),
       ex0(103, "DB OHP", "3×10"),
-      ex0(104, "Pulldown machine", "3×10"),
+      ex0(104, "Lat pulldown", "3×10"),
       ex0(105, "Triceps extension", "3×10"),
-      ex0(106, "Preacher curls", "3×10 · superset avec Spider curls"),
-      ex0(107, "Spider curls", "Superset avec Preacher curls"),
+      ex0(106, "Preacher curls", "3×10 · superset with Spider curls"),
+      ex0(107, "Spider curls", "Superset with Preacher curls"),
     ]},
     { id: 2, name: "Lower", archived: false, exercises: [
       ex0(201, "Squat", "3×6"),
-      ex0(202, "Leg extension", "3×10 · superset avec Leg curl"),
-      ex0(203, "Leg curl", "3×10 · superset avec Leg extension"),
+      ex0(202, "Leg extension", "3×10 · superset with Leg curl"),
+      ex0(203, "Leg curl", "3×10 · superset with Leg extension"),
       ex0(204, "Leg press", "3×10"),
-      ex0(205, "Adducteurs", "3×10 · superset avec RDL"),
-      ex0(206, "RDL", "3×10 · superset avec Adducteurs"),
+      ex0(205, "Adductors", "3×10 · superset with RDL"),
+      ex0(206, "RDL", "3×10 · superset with Adductors"),
     ]},
     { id: 3, name: "Push", archived: false, exercises: [
       ex0(301, "Bench", "3×6"),
       ex0(302, "Incline DB press", "3×10"),
-      ex0(303, "OHP machine", "3×10 · prise neutre"),
-      ex0(304, "Lat raises machine", "3×12"),
+      ex0(303, "OHP machine", "3×10 · neutral grip"),
+      ex0(304, "Lateral raise machine", "3×12"),
       ex0(305, "Triceps extension", "3×10"),
-      ex0(306, "Skullcrushers", "3×10 · superset avec Dips"),
-      ex0(307, "Dips", "3×10 · superset avec Skullcrushers", true),
+      ex0(306, "Skullcrushers", "3×10 · superset with Dips"),
+      ex0(307, "Dips", "3×10 · superset with Skullcrushers", true),
     ]},
     { id: 4, name: "Pull", archived: false, exercises: [
-      ex0(401, "Rowing horizontal", "3×10 · triple superset"),
+      ex0(401, "Seated row", "3×10 · triple superset"),
       ex0(402, "Shrugs", "3×12-14 · triple superset"),
       ex0(403, "Hammer curls", "3×10 · triple superset"),
-      ex0(404, "Curl biceps (au choix)", "À définir"),
-      ex0(405, "Oiseau", "3×12"),
+      ex0(404, "Biceps curl (your pick)", "TBD"),
+      ex0(405, "Rear delt fly", "3×12"),
     ]},
     { id: 5, name: "Legs", archived: false, exercises: [
       ex0(501, "Squat", "3×6"),
       ex0(502, "Hip thrusts", "3×10"),
-      ex0(503, "Extensions fessiers", "3×10"),
-      ex0(504, "Abducteurs", "3×10"),
-      ex0(505, "Coup de pied cheval", "3×10"),
-      ex0(506, "Extensions lombaires", "Ou machine quads — à définir"),
+      ex0(503, "Glute extensions", "3×10"),
+      ex0(504, "Abductors", "3×10"),
+      ex0(505, "Cable kickbacks", "3×10"),
+      ex0(506, "Back extensions", "Or quad machine — TBD"),
     ]},
   ],
   maxes: {
@@ -835,54 +868,130 @@ const DEFAULT_STATE = {
   },
 };
 
-/* converts old single-line entries { weight, sets:count, reps } to the new per-set format */
-function toSetsEntry(e) {
-  if (Array.isArray(e.sets)) return e;
-  const n = Math.max(1, parseInt(e.sets) || 1);
-  return { date: e.date, sets: uniformSets(n, e.weight || 0, e.reps || 0) };
+/* ---- serialize: internal state -> stable backup object ---- */
+function serialize() {
+  return {
+    format: FORMAT,
+    schema: SCHEMA,
+    exportedAt: Date.now(),
+    bodyweight: state.bodyweight || 0,
+    workouts: state.workouts.map(w => ({
+      name: w.name,
+      archived: !!w.archived,
+      exercises: w.exercises.map(ex => ({
+        name: ex.name,
+        notes: ex.notes || "",
+        bodyweight: !!ex.bw,
+        archived: !!ex.archived,
+        history: (ex.history || []).map(e => {
+          const o = { date: e.date, sets: (e.sets || []).map(s => ({ weight: s.w, reps: s.r })) };
+          if (e.bw != null) o.bodyweightAtTime = e.bw;
+          return o;
+        }),
+      })),
+    })),
+    maxes: Object.fromEntries(["squat", "bench", "deadlift"].map(k => [k, {
+      value: state.maxes[k].value || 0,
+      history: (state.maxes[k].history || []).map(p => ({ date: p.date, value: p.value })),
+    }])),
+  };
 }
 
-function migrate(data) {
-  data.settings ??= { unit: "kg" };
-  data.bodyweight ??= 0;
-  for (const w of data.workouts) {
-    for (const ex of w.exercises) {
-      ex.notes ??= "";
-      ex.bw ??= false;
-      ex.archived ??= false;
-      // old `last` triple -> array of sets
-      if (ex.last && !Array.isArray(ex.last)) {
-        ex.last = ex.last.weight > 0
-          ? uniformSets(Math.max(1, parseInt(ex.last.sets) || 1), ex.last.weight, ex.last.reps || 0)
-          : [];
-      }
-      ex.last ??= [];
-      ex.history = (ex.history || []).map(toSetsEntry);
-      if (!ex.history.length && ex.last.length)
-        ex.history = [{ date: ex.lastChanged, sets: ex.last }];
-    }
-  }
+const num0 = v => { const n = +v; return Number.isFinite(n) ? n : 0; };
+
+/* recompute the derived "last entry" + its date from history */
+function rebuild(ex) {
+  ex.history.sort((a, b) => a.date - b.date);
+  const newest = ex.history.length ? ex.history[ex.history.length - 1] : null;
+  ex.last = newest ? newest.sets : [];
+  ex.lastChanged = newest ? newest.date : Date.now();
+  return ex;
+}
+
+/* ---- deserialize: any recognized backup -> internal state ----
+   Accepts (a) the stable schema above, and (b) legacy raw-state
+   dumps from earlier versions (handled by migrateLegacy). */
+function deserialize(obj) {
+  if (!obj || typeof obj !== "object" || !Array.isArray(obj.workouts)) return null;
+  if (obj.format !== FORMAT) return migrateLegacy(obj);   // older raw-state backup
+
+  const st = { bodyweight: num0(obj.bodyweight), workouts: [], maxes: {} };
+  st.workouts = obj.workouts.map(w => ({
+    id: nid(),
+    name: w.name || "Workout",
+    archived: !!w.archived,
+    exercises: (w.exercises || []).map(ex => rebuild({
+      id: nid(),
+      name: ex.name || "Exercise",
+      notes: ex.notes || "",
+      bw: !!ex.bodyweight,
+      archived: !!ex.archived,
+      history: (ex.history || []).map(e => {
+        const entry = { date: e.date, sets: (e.sets || []).map(s => ({ w: num0(s.weight), r: parseInt(s.reps) || 0 })) };
+        if (e.bodyweightAtTime != null) entry.bw = num0(e.bodyweightAtTime);
+        return entry;
+      }),
+    })),
+  }));
   for (const k of ["squat", "bench", "deadlift"]) {
-    if (typeof data.maxes[k] !== "object" || data.maxes[k] === null) {
-      const v = parseFloat(data.maxes[k]) || 0;
-      data.maxes[k] = { value: v, history: v ? [{ date: Date.now(), value: v }] : [] };
-    }
-    data.maxes[k].history ??= [];
+    const m = (obj.maxes && obj.maxes[k]) || {};
+    st.maxes[k] = {
+      value: num0(m.value),
+      history: (m.history || []).map(p => ({ date: p.date, value: num0(p.value) })).sort((a, b) => a.date - b.date),
+    };
   }
-  return data;
+  return st;
 }
 
-const KEY = "training-log-v2";   // v2: per-set format + real program (v1 demo data is left behind)
+/* ---- migrateLegacy: raw internal-state dumps from versions before
+   the stable schema (older exports / older localStorage). ---- */
+function migrateLegacy(data) {
+  const toSets = e => Array.isArray(e.sets)
+    ? e.sets
+    : uniformSets(Math.max(1, parseInt(e.sets) || 1), e.weight || 0, e.reps || 0);
+  const st = { bodyweight: num0(data.bodyweight), workouts: [], maxes: {} };
+  st.workouts = (data.workouts || []).map(w => ({
+    id: nid(),
+    name: w.name || "Workout",
+    archived: !!w.archived,
+    exercises: (w.exercises || []).map(ex => {
+      let history = (ex.history || []).map(e => {
+        const o = { date: e.date, sets: toSets(e).map(s => ({ w: num0(s.w ?? s.weight), r: parseInt(s.r ?? s.reps) || 0 })) };
+        if (e.bw != null) o.bw = num0(e.bw);
+        return o;
+      });
+      // legacy `last` triple with no history
+      if (!history.length && ex.last) {
+        const last = Array.isArray(ex.last) ? ex.last
+          : (ex.last.weight > 0 ? uniformSets(Math.max(1, parseInt(ex.last.sets) || 1), ex.last.weight, ex.last.reps || 0) : []);
+        if (last.length) history = [{ date: ex.lastChanged || Date.now(), sets: last.map(s => ({ w: num0(s.w), r: s.r })) }];
+      }
+      return rebuild({
+        id: nid(), name: ex.name || "Exercise", notes: ex.notes || "",
+        bw: !!ex.bw, archived: !!ex.archived, history,
+      });
+    }),
+  }));
+  const mx = data.maxes || {};
+  for (const k of ["squat", "bench", "deadlift"]) {
+    const m = mx[k];
+    if (m && typeof m === "object") st.maxes[k] = { value: num0(m.value), history: (m.history || []).map(p => ({ date: p.date, value: num0(p.value) })) };
+    else st.maxes[k] = { value: num0(m), history: num0(m) ? [{ date: Date.now(), value: num0(m) }] : [] };
+  }
+  return st;
+}
+
+const KEY = "training-log-v2";
 let storageOk = true;
 function load() {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return migrate(JSON.parse(raw));
+    if (raw) { const st = deserialize(JSON.parse(raw)); if (st) return st; }
   } catch (e) { storageOk = false; }
-  return JSON.parse(JSON.stringify(DEFAULT_STATE));
+  return migrateLegacy(DEFAULT_STATE);   // seed defaults through the same normalizer
 }
 function save() {
-  try { localStorage.setItem(KEY, JSON.stringify(state)); }
+  try { localStorage.setItem(KEY, JSON.stringify(serialize())); }
   catch (e) { /* preview / private mode: in-memory only */ }
 }
 
@@ -893,6 +1002,7 @@ let pendingDel = null;
 let actionEx = null;     // exId whose archive/delete action menu is open
 let moveEx = null;       // exId whose reorder arrows are shown
 let restoreEx = null;    // archived exId awaiting a target-workout choice
+let justLogged = null;   // exId showing a "Saved ✓" flash right after logging
 let logDate = null;                                  // null = today; otherwise timestamp at noon of the chosen day
 const logTs = () => logDate ?? Date.now();
 const drafts = {};                                   // exId -> [{w:"", r:""}, ...]
@@ -904,7 +1014,8 @@ const expandedMax = new Set();
    Units
    ================================================================= */
 const KG2LB = 2.2046226218;
-const unit = () => state.settings.unit;
+let displayUnit = "kg";                 // display-only, not part of the backup
+const unit = () => displayUnit;
 const disp = kg => unit() === "lbs" ? kg * KG2LB : kg;
 const store = v  => unit() === "lbs" ? v / KG2LB : v;
 const fmtNum = v => {
@@ -922,14 +1033,19 @@ const fmtW = kg => fmtNum(disp(kg));
    ================================================================= */
 const EPS = 1e-6;
 const eE1RM = e => e.sets.length ? Math.max(...e.sets.map(s => setLoad(e, s) * (1 + s.r / 30))) : 0;
+const sortedHistory = ex => (ex.history || []).slice().sort((a, b) => a.date - b.date);
 const newestEntry = ex => ex.history.length ? ex.history.reduce((a, b) => (b.date > a.date ? b : a)) : null;
+/* one entry per calendar day per exercise: find an existing entry on the same day as the target */
+const sameDay = (a, b) => {
+  const x = new Date(a), y = new Date(b);
+  return x.getFullYear() === y.getFullYear() && x.getMonth() === y.getMonth() && x.getDate() === y.getDate();
+};
+const entryOnDay = (ex, ts) => (ex.history || []).find(e => sameDay(e.date, ts));
 
-function improved(prev, curr) {
-  return eE1RM(curr) > eE1RM(prev) + EPS || eVol(curr) > eVol(prev) + EPS;
-}
+const improved = (prev, curr) => eE1RM(curr) > eE1RM(prev) + EPS || eVol(curr) > eVol(prev) + EPS;
 
-function lastProgressDate(ex) {
-  const h = (ex.history || []).slice().sort((a, b) => a.date - b.date);
+/* date of the most recent entry that beat its predecessor (or the first entry) */
+function lastProgressDate(h) {
   if (!h.length) return null;
   for (let i = h.length - 1; i >= 1; i--)
     if (improved(h[i - 1], h[i])) return h[i].date;
@@ -941,9 +1057,9 @@ function lastProgressDate(ex) {
    orange: ≥ 3 weeks without positive change
    red:    ≥ 4 weeks · black: ≥ 5 weeks */
 function statusColor(ex) {
-  const h = (ex.history || []).slice().sort((a, b) => a.date - b.date);
+  const h = sortedHistory(ex);
   if (!h.length) return "var(--border)";
-  const weeks = (Date.now() - lastProgressDate(ex)) / (7 * DAY);
+  const weeks = (Date.now() - lastProgressDate(h)) / (7 * DAY);
   const lastImproved = h.length >= 2 && improved(h[h.length - 2], h[h.length - 1]);
   if (lastImproved && weeks < 3) return "var(--green)";
   if (weeks < 3) return "var(--yellow)";
@@ -952,22 +1068,19 @@ function statusColor(ex) {
   return "var(--black)";
 }
 
-/* "Dernier" label from an entry */
+/* "Last" label from an entry. Bodyweight exos show added load as "+N" / "BW". */
 function lastLabel(entry, isBw) {
   const sets = entry.sets;
   const reps = sets.map(s => s.r).join("/");
-  if (isBw) {
-    const uniq = [...new Set(sets.map(s => s.w))];
-    if (uniq.length === 1) {
-      const add = uniq[0];
-      return (add > 0 ? `PDC +${fmtW(add)} ${unit()}` : "PDC") + ` <small>· ${reps}</small>`;
-    }
-    return sets.map(s => `${s.w > 0 ? "+" + fmtW(s.w) : "PDC"}×${s.r}`).join(" <small>·</small> ");
-  }
   const uniqueW = [...new Set(sets.map(s => s.w))];
-  if (uniqueW.length === 1)
-    return `${fmtW(uniqueW[0])} ${unit()} <small>· ${reps}</small>`;
-  return sets.map(s => `${fmtW(s.w)}×${s.r}`).join(" <small>·</small> ");
+  if (uniqueW.length === 1) {
+    const w = uniqueW[0];
+    const head = isBw ? (w > 0 ? `BW +${fmtW(w)} ${unit()}` : "BW")
+                      : `${fmtW(w)} ${unit()}`;
+    return `${head} <small>· ${reps}</small>`;
+  }
+  const cell = w => isBw ? (w > 0 ? "+" + fmtW(w) : "BW") : fmtW(w);
+  return sets.map(s => `${cell(s.w)}×${s.r}`).join(" <small>·</small> ");
 }
 
 /* =================================================================
@@ -976,7 +1089,7 @@ function lastLabel(entry, isBw) {
 function fmtDate(t, withYear = false) {
   const o = { day: "numeric", month: "short" };
   if (withYear) o.year = "numeric";
-  return new Date(t).toLocaleDateString("fr-CA", o);
+  return new Date(t).toLocaleDateString("en-CA", o);
 }
 
 function lastMonth(h) {
@@ -985,43 +1098,46 @@ function lastMonth(h) {
   return win.length >= 2 ? win : h;
 }
 
-function bigSVG(vals, color, W, H) {
-  const padL = 34, padR = 8, padT = 12, padB = 8;
+/* shared linear scale for the little inline SVGs */
+function makeScale(vals, W, H, padL, padR, padT, padB) {
   const n = vals.length;
-  const min = Math.min(...vals), max = Math.max(...vals);
-  const span = max - min || 1;
-  const x = i => padL + (i / Math.max(1, n - 1)) * (W - padL - padR);
-  const y = v => H - padB - ((v - min) / span) * (H - padT - padB);
-  const pts = vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
-  let s = "";
-  s += `<line x1="${padL}" y1="${y(max)}" x2="${W - padR}" y2="${y(max)}" stroke="#24262E" stroke-width="1"/>`;
-  s += `<line x1="${padL}" y1="${y(min)}" x2="${W - padR}" y2="${y(min)}" stroke="#24262E" stroke-width="1"/>`;
-  s += `<text x="${padL - 5}" y="${y(max) + 3}" text-anchor="end" font-size="9" fill="#5B5F6B">${fmtNum(max)}</text>`;
-  s += `<text x="${padL - 5}" y="${y(min) + 3}" text-anchor="end" font-size="9" fill="#5B5F6B">${fmtNum(min)}</text>`;
-  s += `<polygon points="${x(0).toFixed(1)},${H - padB} ${pts} ${x(n - 1).toFixed(1)},${H - padB}" fill="${color}" opacity="0.08"/>`;
-  s += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`;
-  s += `<circle cx="${x(n - 1).toFixed(1)}" cy="${y(vals[n - 1]).toFixed(1)}" r="3.5" fill="${color}"/>`;
+  const min = Math.min(...vals), max = Math.max(...vals), span = max - min || 1;
+  return {
+    min, max, n,
+    x: i => padL + (i / Math.max(1, n - 1)) * (W - padL - padR),
+    y: v => H - padB - ((v - min) / span) * (H - padT - padB),
+  };
+}
+
+/* big inline chart with min/max gridlines + labels */
+function bigSVG(vals, color, W, H) {
+  const padL = 34, padR = 8;
+  const sc = makeScale(vals, W, H, padL, padR, 12, 8);
+  const pts = vals.map((v, i) => `${sc.x(i).toFixed(1)},${sc.y(v).toFixed(1)}`).join(" ");
+  const gridLabel = (v) =>
+    `<line x1="${padL}" y1="${sc.y(v)}" x2="${W - padR}" y2="${sc.y(v)}" stroke="#24262E" stroke-width="1"/>` +
+    `<text x="${padL - 5}" y="${sc.y(v) + 3}" text-anchor="end" font-size="9" fill="#5B5F6B">${fmtNum(v)}</text>`;
+  const s = gridLabel(sc.max) + gridLabel(sc.min)
+    + `<polygon points="${sc.x(0).toFixed(1)},${H - 8} ${pts} ${sc.x(sc.n - 1).toFixed(1)},${H - 8}" fill="${color}" opacity="0.08"/>`
+    + `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`
+    + `<circle cx="${sc.x(sc.n - 1).toFixed(1)}" cy="${sc.y(vals[sc.n - 1]).toFixed(1)}" r="3.5" fill="${color}"/>`;
   return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${s}</svg>`;
 }
 
+/* mini sparkline + min/max caption */
 function miniSVG(vals, color, W, H) {
-  const padX = 3, padT = 4, padB = 4;
-  const n = vals.length;
-  const min = Math.min(...vals), max = Math.max(...vals);
-  const span = max - min || 1;
-  const x = i => padX + (i / Math.max(1, n - 1)) * (W - 2 * padX);
-  const y = v => H - padB - ((v - min) / span) * (H - padT - padB);
-  const pts = vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
-  let s = `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
-  s += `<circle cx="${x(n - 1).toFixed(1)}" cy="${y(vals[n - 1]).toFixed(1)}" r="3" fill="${color}"/>`;
-  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${s}</svg>` +
-    `<div style="display:flex;justify-content:space-between;font-size:8px;color:var(--faint)"><span>${fmtNum(min)}</span><span>${fmtNum(max)}</span></div>`;
+  const sc = makeScale(vals, W, H, 3, 3, 4, 4);
+  const pts = vals.map((v, i) => `${sc.x(i).toFixed(1)},${sc.y(v).toFixed(1)}`).join(" ");
+  const s = `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`
+    + `<circle cx="${sc.x(sc.n - 1).toFixed(1)}" cy="${sc.y(vals[sc.n - 1]).toFixed(1)}" r="3" fill="${color}"/>`;
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${s}</svg>`
+    + `<div style="display:flex;justify-content:space-between;font-size:8px;color:var(--faint)"><span>${fmtNum(sc.min)}</span><span>${fmtNum(sc.max)}</span></div>`;
 }
 
 function chartHTML(ex) {
-  const all = (ex.history || []).slice().sort((a, b) => a.date - b.date);
+  const all = sortedHistory(ex);
   if (all.length < 2)
-    return `<div class="chart-panel"><div class="chart-empty">Pas encore assez d'entrées — logue quelques séances pour voir la progression.</div></div>`;
+    return `<div class="chart-panel"><div class="chart-empty">Not enough entries yet — log a few sessions to see progress.</div></div>`;
   const h = lastMonth(all);
 
   const vol  = h.map(e => disp(eVol(e)));
@@ -1041,7 +1157,7 @@ function chartHTML(ex) {
   return `<div class="chart-panel">
     <div class="tap-zone" data-open-ex="${ex.id}" data-open-metric="vol">
       <div class="chart-title">
-        <span class="name">Poids total soulevé · 1 mois</span>
+        <span class="name">Total weight lifted · 1 month</span>
         <span class="val" style="color:#F2F3F5">${fmtNum(vol[vol.length - 1])} ${u}</span>
       </div>
       ${bigSVG(vol, "#F2F3F5", 360, 110)}
@@ -1049,18 +1165,18 @@ function chartHTML(ex) {
     </div>
     <div class="mini-row">
       ${mini("e1rm", "e1RM", e1s, "#FF9F0A", "")}
-      ${mini("weight", "Poids top", wts, "#5AC8FA", "")}
+      ${mini("weight", "Top wt", wts, "#5AC8FA", "")}
       ${mini("sets", "Sets", sets, "#BF5AF2", "")}
       ${mini("reps", "Reps tot.", reps, "#FFD60A", "")}
     </div>
-    <div class="expand-hint">Touche un graph pour l'agrandir</div>
+    <div class="expand-hint">Tap a chart to enlarge</div>
   </div>`;
 }
 
 function maxChartHTML(m, key) {
   const all = (m.history || []).slice().sort((a, b) => a.date - b.date);
   if (all.length < 2)
-    return `<div class="chart-panel"><div class="chart-empty">Pas encore assez d'entrées — mets ton max à jour quelques fois pour voir la courbe.</div></div>`;
+    return `<div class="chart-panel"><div class="chart-empty">Not enough entries yet — update your max a few times to see the curve.</div></div>`;
   const h = lastMonth(all);
   const vals = h.map(e => disp(e.value));
   return `<div class="chart-panel">
@@ -1068,7 +1184,7 @@ function maxChartHTML(m, key) {
       ${bigSVG(vals, "#5AC8FA", 360, 90)}
       <div class="chart-dates"><span>${fmtDate(h[0].date)}</span><span>${fmtDate(h[h.length - 1].date)}</span></div>
     </div>
-    <div class="expand-hint">Touche le graph pour l'agrandir</div>
+    <div class="expand-hint">Tap the chart to enlarge</div>
   </div>`;
 }
 
@@ -1076,11 +1192,11 @@ function maxChartHTML(m, key) {
    Fullscreen interactive chart modal
    ================================================================= */
 const METRICS = {
-  vol:    { label: "Poids total soulevé", color: "#F2F3F5", get: eVol,   weightUnit: true },
-  e1rm:   { label: "e1RM (meilleur set)", color: "#FF9F0A", get: eE1RM,  weightUnit: true },
-  weight: { label: "Poids (top set)",     color: "#5AC8FA", get: eTopW,  weightUnit: true },
+  vol:    { label: "Total weight lifted", color: "#F2F3F5", get: eVol,   weightUnit: true },
+  e1rm:   { label: "e1RM (best set)",      color: "#FF9F0A", get: eE1RM,  weightUnit: true },
+  weight: { label: "Weight (top set)",     color: "#5AC8FA", get: eTopW,  weightUnit: true },
   sets:   { label: "Sets",                color: "#BF5AF2", get: eSetsN, weightUnit: false },
-  reps:   { label: "Reps totales",        color: "#FFD60A", get: eRepsT, weightUnit: false },
+  reps:   { label: "Total reps",           color: "#FFD60A", get: eRepsT, weightUnit: false },
 };
 const MAX_LABELS = { squat: "Squat", bench: "Bench", deadlift: "Deadlift" };
 
@@ -1142,7 +1258,7 @@ function renderModal() {
 
   const wrap = document.getElementById("modalChartWrap");
   if (pts.length < 2) {
-    wrap.innerHTML = `<div class="chart-empty" style="padding:40px 0">Pas encore assez d'entrées.</div>`;
+    wrap.innerHTML = `<div class="chart-empty" style="padding:40px 0">Not enough entries yet.</div>`;
     return;
   }
 
@@ -1241,46 +1357,41 @@ let mg = null;
 function setupModalGestures() {
   const w = wrapEl();
 
+  // shared math: pan the view by a pixel delta from a captured base window
+  const panBy = (dx, t0, t1) => {
+    const dt = -(dx / w.getBoundingClientRect().width) * (t1 - t0);
+    modal.t0 = t0 + dt; modal.t1 = t1 + dt;
+    clampView(); renderModal();
+  };
+  // shared math: pinch to a new span around a fixed time point
+  const pinchApply = (dist, g) => {
+    const span = (g.t1 - g.t0) * (g.d / (dist || 1));
+    const frac = (g.midT - g.t0) / (g.t1 - g.t0);
+    modal.t0 = g.midT - span * frac; modal.t1 = modal.t0 + span;
+    clampView(); renderModal();
+  };
+  const pinchStart = (a, b) => ({
+    mode: "pinch", d: Math.abs(a.clientX - b.clientX) || 1, t0: modal.t0, t1: modal.t1,
+    midT: clientXToTime((a.clientX + b.clientX) / 2), moved: 99,
+  });
+
   w.addEventListener("touchstart", e => {
     if (!modal) return;
-    if (e.touches.length === 1) {
-      mg = { mode: "pan", x: e.touches[0].clientX, t0: modal.t0, t1: modal.t1, moved: 0 };
-    } else {
-      const a = e.touches[0], b = e.touches[1];
-      mg = {
-        mode: "pinch",
-        d: Math.abs(a.clientX - b.clientX) || 1,
-        t0: modal.t0, t1: modal.t1,
-        midT: clientXToTime((a.clientX + b.clientX) / 2),
-        moved: 99,
-      };
-    }
+    mg = e.touches.length === 1
+      ? { mode: "pan", x: e.touches[0].clientX, t0: modal.t0, t1: modal.t1, moved: 0 }
+      : pinchStart(e.touches[0], e.touches[1]);
   }, { passive: true });
 
   w.addEventListener("touchmove", e => {
     if (!modal || !mg) return;
     e.preventDefault();
     if (e.touches.length >= 2) {
-      const a = e.touches[0], b = e.touches[1];
-      if (mg.mode !== "pinch")
-        mg = { mode: "pinch", d: Math.abs(a.clientX - b.clientX) || 1, t0: modal.t0, t1: modal.t1,
-               midT: clientXToTime((a.clientX + b.clientX) / 2), moved: 99 };
-      const dist = Math.abs(a.clientX - b.clientX) || 1;
-      const span = (mg.t1 - mg.t0) * (mg.d / dist);
-      const frac = (mg.midT - mg.t0) / (mg.t1 - mg.t0);
-      modal.t0 = mg.midT - span * frac;
-      modal.t1 = modal.t0 + span;
-      clampView();
-      renderModal();
+      if (mg.mode !== "pinch") mg = pinchStart(e.touches[0], e.touches[1]);
+      pinchApply(Math.abs(e.touches[0].clientX - e.touches[1].clientX), mg);
     } else if (mg.mode === "pan") {
       const dx = e.touches[0].clientX - mg.x;
       mg.moved = Math.max(mg.moved, Math.abs(dx));
-      const r = w.getBoundingClientRect();
-      const dt = -(dx / r.width) * (mg.t1 - mg.t0);
-      modal.t0 = mg.t0 + dt;
-      modal.t1 = mg.t1 + dt;
-      clampView();
-      renderModal();
+      panBy(dx, mg.t0, mg.t1);
     }
   }, { passive: false });
 
@@ -1304,14 +1415,8 @@ function setupModalGestures() {
   });
   document.addEventListener("mousemove", e => {
     if (!modal || !mg || mg.mode !== "mouse") return;
-    const dx = e.clientX - mg.x;
-    mg.moved = Math.max(mg.moved, Math.abs(dx));
-    const r = wrapEl().getBoundingClientRect();
-    const dt = -(dx / r.width) * (mg.t1 - mg.t0);
-    modal.t0 = mg.t0 + dt;
-    modal.t1 = mg.t1 + dt;
-    clampView();
-    renderModal();
+    mg.moved = Math.max(mg.moved, Math.abs(e.clientX - mg.x));
+    panBy(e.clientX - mg.x, mg.t0, mg.t1);
   });
   document.addEventListener("mouseup", e => {
     if (!modal || !mg || mg.mode !== "mouse") return;
@@ -1339,8 +1444,8 @@ function render() {
 
   $("title").textContent =
     activeId === "maxes" ? "Maxes — S/B/D" :
-    activeId === "archived" ? "Archivés" :
-    activeId === "settings" ? "Réglages" :
+    activeId === "archived" ? "Archived" :
+    activeId === "settings" ? "Settings" :
     active ? active.name : "";
 
   const eb = $("editBtn");
@@ -1352,7 +1457,7 @@ function render() {
   pill.classList.toggle("active", logDate !== null);
   $("dateLabel").textContent = logDate === null ? "📅" : "📅 " + fmtDate(logDate);
   $("todayBtn").hidden = logDate === null;
-  $("eyebrow").textContent = logDate === null ? "Training Log" : "Log au " + fmtDate(logDate, true);
+  $("eyebrow").textContent = logDate === null ? "Training Log" : "Log on " + fmtDate(logDate, true);
   $("eyebrow").style.color = logDate === null ? "" : "var(--orange)";
 
   let t = "";
@@ -1360,22 +1465,22 @@ function render() {
     t += `<div class="tab-wrap">
       <button class="tab ${w.id === activeId ? "selected" : ""}" data-tab="${w.id}">${esc(w.name)}</button>
       ${editTabs ? `<div class="tab-actions">
-        <button class="tab-archive" data-archive="${w.id}" title="Archiver">▢</button>
-        <button class="tab-delete" data-del-workout="${w.id}" title="Supprimer">${pendingDel === w.id ? "Sûr ?" : "✕"}</button>
+        <button class="tab-archive" data-archive="${w.id}" title="Archive">▢</button>
+        <button class="tab-delete" data-del-workout="${w.id}" title="Delete">${pendingDel === w.id ? "Sure?" : "✕"}</button>
       </div>` : ""}
     </div>`;
   }
-  t += `<button class="tab add" data-add-workout>+ Ajouter</button>`;
+  t += `<button class="tab add" data-add-workout>+ Add</button>`;
   const archEx = state.workouts.flatMap(w => w.exercises.filter(ex => ex.archived).map(ex => ({ ex, from: w })));
   const archCount = archived.length + archEx.length;
   if (archCount)
-    t += `<button class="tab ${activeId === "archived" ? "selected" : ""}" data-tab="archived">Archivés (${archCount})</button>`;
+    t += `<button class="tab ${activeId === "archived" ? "selected" : ""}" data-tab="archived">Archived (${archCount})</button>`;
   t += `<button class="tab ${activeId === "maxes" ? "selected" : ""}" data-tab="maxes">★ Maxes</button>`;
   t += `<button class="tab ${activeId === "settings" ? "selected" : ""}" data-tab="settings">⚙</button>`;
   $("tabs").innerHTML = t;
 
   $("legend").innerHTML = (typeof activeId !== "number") ? "" :
-    [["var(--green)", "Progrès"], ["var(--yellow)", "Stagne"], ["var(--orange)", "3 sem"], ["var(--red)", "4 sem"], ["var(--black)", "5 sem +"]]
+    [["var(--green)", "Progress"], ["var(--yellow)", "Stalled"], ["var(--orange)", "3 wk"], ["var(--red)", "4 wk"], ["var(--black)", "5 wk +"]]
       .map(([c, l]) => `<span><span class="dot" style="background:${c}"></span>${l}</span>`).join("");
 
   if (activeId === "maxes") renderMaxes();
@@ -1387,12 +1492,11 @@ function render() {
 
 /* set columns editor — used both for logging and for the add-exercise starting point.
    prefix: "set" for drafts[exId], "nset" for addDraft. ref: exId or "new". */
-function setColsHTML(cols, ref, placeholders, isBw) {
-  const u = unit();
-  const wLabel = isBw ? "+" + u : u;
+function setColsHTML(cols, ref, isBw) {
+  const wLabel = isBw ? "+" + unit() : unit();
   let html = `<div class="sets-scroll">`;
   cols.forEach((c, i) => {
-    const wPh = isBw ? "0 = PDC" : "—";
+    const wPh = isBw ? "0 = BW" : "—";
     html += `<div class="set-col">
       <div class="set-col-head">
         <span>Set ${i + 1}</span>
@@ -1410,16 +1514,18 @@ function setColsHTML(cols, ref, placeholders, isBw) {
 }
 
 function renderWorkout(w) {
-  let h = `<input class="rename" data-rename value="${esc(w.name)}" placeholder="Nom du workout…">`;
+  let h = `<input class="rename" data-rename value="${esc(w.name)}" placeholder="Workout name…">`;
 
   const live = w.exercises.filter(ex => !ex.archived);
   live.forEach((ex, idx) => {
     const c = statusColor(ex);
     if (!drafts[ex.id]) {
-      // prefill with the last session's actual values (editable) so re-logging is one tap
-      // and there's no "is this filled or just a placeholder?" ambiguity
-      drafts[ex.id] = ex.last.length
-        ? ex.last.map(s => ({ w: ex.bw && s.w === 0 ? "" : fmtNum(disp(s.w)), r: String(s.r) }))
+      // prefill with the target-day entry if it exists (so "Modify" edits the right values),
+      // otherwise with the last session's values; editable, never a placeholder ghost
+      const dayEntry = entryOnDay(ex, logTs());
+      const base = dayEntry ? dayEntry.sets : ex.last;
+      drafts[ex.id] = base.length
+        ? base.map(s => ({ w: ex.bw && s.w === 0 ? "" : fmtNum(disp(s.w)), r: String(s.r) }))
         : [{ w: "", r: "" }];
     }
     const open = expanded.has(ex.id);
@@ -1434,58 +1540,61 @@ function renderWorkout(w) {
           ? `<div class="move-arrows">
                <button data-move="${ex.id}:up" ${idx === 0 ? "disabled" : ""}>▲</button>
                <button data-move="${ex.id}:down" ${idx === live.length - 1 ? "disabled" : ""}>▼</button>
-               <button class="move-done" data-move-mode="${ex.id}" title="Terminer">✓ Fait</button>
+               <button class="move-done" data-move-mode="${ex.id}" title="Terminer">✓ Done</button>
              </div>`
-          : `<button class="move-btn" data-move-mode="${ex.id}" title="Réordonner">≡</button>`}
+          : `<button class="move-btn" data-move-mode="${ex.id}" title="Reorder">≡</button>`}
         <div class="ex-name">${esc(ex.name)}</div>
-        <button class="chart-btn ${ex.bw ? "open" : ""}" data-bw-toggle="${ex.id}" title="Exo au poids de corps">PDC</button>
+        <button class="chart-btn ${ex.bw ? "open" : ""}" data-bw-toggle="${ex.id}" title="Bodyweight exercise">BW</button>
         <button class="chart-btn ${open ? "open" : ""}" data-toggle-chart="${ex.id}">${open ? "Graph ▴" : "Graph ▾"}</button>
         <button class="x-btn ${actionEx === ex.id ? "confirm" : ""}" data-ex-actions="${ex.id}">✕</button>
       </div>
       ${actionEx === ex.id ? `<div class="ex-actions">
-        <button class="act-archive" data-archive-ex="${ex.id}">Archiver</button>
-        <button class="act-delete" data-del-ex="${ex.id}">Supprimer</button>
-        <button class="act-cancel" data-cancel-action>Annuler</button>
+        <button class="act-archive" data-archive-ex="${ex.id}">Archive</button>
+        <button class="act-delete" data-del-ex="${ex.id}">Delete</button>
+        <button class="act-cancel" data-cancel-action>Cancel</button>
       </div>` : ""}
-      <input class="notes-input" placeholder="Notes — inclinaison, prise, tempo…" value="${esc(ex.notes || "")}" data-notes="${ex.id}">
+      <input class="notes-input" placeholder="Notes — incline, grip, tempo…" value="${esc(ex.notes || "")}" data-notes="${ex.id}">
       <div class="prev" style="border-color:${hasData ? c : "var(--border)"}33">
         <span class="dot" style="background:${hasData ? c : "var(--border)"}; box-shadow: inset 0 0 0 3px rgba(0,0,0,.45)"></span>
         <div style="flex:1">
-          <div class="prev-label">Dernier</div>
+          <div class="prev-label">Last</div>
           ${hasData
             ? `<div class="prev-val" style="color:${c}">${lastLabel(ne, ex.bw)}</div>
                <div style="font-size:11px;color:var(--faint);margin-top:1px">e1RM est. ${e1} ${unit()}</div>`
             : `<div class="prev-val" style="color:var(--faint)">—</div>`}
         </div>
       </div>
-      ${bwMissing ? `<div style="font-size:11px;color:var(--orange);margin:-6px 2px 10px">⚠ Renseigne ton poids de corps dans ★ Maxes pour des graphs justes</div>` : ""}
+      ${bwMissing ? `<div style="font-size:11px;color:var(--orange);margin:-6px 2px 10px">⚠ Set your bodyweight in ★ Maxes for accurate charts</div>` : ""}
       ${open ? chartHTML(ex) : ""}
-      ${hasData ? `<div style="font-size:10px;color:var(--faint);margin:2px 2px 5px">Pré-rempli avec ta dernière séance — ajuste puis Log</div>` : ""}
-      ${setColsHTML(drafts[ex.id], ex.id, ex.last, ex.bw)}
-      <button class="log-btn" data-log="${ex.id}">Log</button>
+      ${hasData ? `<div style="font-size:10px;color:var(--faint);margin:2px 2px 5px">Pre-filled with your last session — adjust then Log</div>` : ""}
+      ${setColsHTML(drafts[ex.id], ex.id, ex.bw)}
+      <button class="log-btn${justLogged === ex.id ? " saved" : ""}" data-log="${ex.id}">${
+        justLogged === ex.id ? "Saved ✓" : (entryOnDay(ex, logTs()) ? "Modify" : "Log")
+      }</button>
     </div>`;
   });
 
   h += `<div class="add-card">
-    <input class="name-input" placeholder="Nouvel exercice…" value="${esc(addDraft.name)}" data-new-name>
+    <input class="name-input" placeholder="New exercise…" value="${esc(addDraft.name)}" data-new-name>
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--dim);margin-bottom:9px;cursor:pointer">
       <input type="checkbox" data-new-bw ${addDraft.bw ? "checked" : ""} style="width:17px;height:17px;accent-color:#F2F3F5">
-      Exo au poids de corps (tractions, dips…)
+      Bodyweight exercise (pull-ups, dips…)
     </label>
-    <div class="start-label">Point de départ — ce que tu as fait la semaine dernière (optionnel)</div>
-    ${setColsHTML(addDraft.sets, "new", null, addDraft.bw)}
-    <button class="log-btn" data-add-ex>Ajouter l'exercice</button>
+    <div class="start-label">Starting point — what you did last week (optional)</div>
+    ${setColsHTML(addDraft.sets, "new", addDraft.bw)}
+    <button class="log-btn" data-add-ex>Add exercise</button>
   </div>`;
   $("main").innerHTML = h;
 }
 
 /* bodyweight ratios (unit-independent: kg/kg) */
+const sbdTotal = () => ["squat", "bench", "deadlift"].reduce((a, k) => a + (state.maxes[k].value || 0), 0);
 function ratioTxt(vKg) {
-  return state.bodyweight > 0 && vKg > 0 ? (vKg / state.bodyweight).toFixed(2) + "× PDC" : "";
+  return state.bodyweight > 0 && vKg > 0 ? (vKg / state.bodyweight).toFixed(2) + "× BW" : "";
 }
 function totalRatioTxt() {
-  const t = (state.maxes.squat.value || 0) + (state.maxes.bench.value || 0) + (state.maxes.deadlift.value || 0);
-  return state.bodyweight > 0 && t > 0 ? (t / state.bodyweight).toFixed(2) + "× poids de corps" : "";
+  const t = sbdTotal();
+  return state.bodyweight > 0 && t > 0 ? (t / state.bodyweight).toFixed(2) + "× bodyweight" : "";
 }
 function updateRatios() {
   for (const k of ["squat", "bench", "deadlift"]) {
@@ -1498,7 +1607,7 @@ function updateRatios() {
 
 function renderMaxes() {
   const m = state.maxes;
-  const total = (m.squat.value || 0) + (m.bench.value || 0) + (m.deadlift.value || 0);
+  const total = sbdTotal();
   const bw = state.bodyweight;
   $("main").innerHTML = `
     ${[["squat","Squat"],["bench","Bench"],["deadlift","Deadlift"]].map(([k, l]) => {
@@ -1518,17 +1627,17 @@ function renderMaxes() {
     }).join("")}
     <div class="max-row">
       <div class="max-top">
-        <div class="max-label">Poids de corps</div>
+        <div class="max-label">Bodyweight</div>
         <div><input type="text" inputmode="decimal" value="${state.bodyweight > 0 ? fmtNum(disp(state.bodyweight)) : ""}" placeholder="—" data-bodyweight><span class="max-unit">${unit()}</span></div>
       </div>
-      <div style="font-size:11px;color:var(--faint);margin-top:4px">Utilisé pour les exos PDC et les ratios de force relative</div>
+      <div style="font-size:11px;color:var(--faint);margin-top:4px">Used for BW exercises and relative-strength ratios</div>
     </div>
     <div class="total-card">
       <div class="eyebrow" style="margin-bottom:6px">Total</div>
       <div class="total-num">${fmtW(total)}<small>${unit()}</small></div>
       <div id="ratio-total" style="font-size:13px;color:#5AC8FA;margin-top:6px;min-height:16px">${totalRatioTxt()}</div>
     </div>
-    <p class="hint">Touche un chiffre pour modifier ton max — chaque changement ajoute un point à la courbe.</p>`;
+    <p class="hint">Tap a number to edit your max — each change adds a point to the curve.</p>`;
 }
 
 function renderSettings() {
@@ -1536,8 +1645,8 @@ function renderSettings() {
   $("main").innerHTML = `
     <div class="setting-row">
       <div>
-        <div class="setting-label">Unité de poids</div>
-        <div class="setting-sub">Convertit tout l'affichage automatiquement.</div>
+        <div class="setting-label">Weight unit</div>
+        <div class="setting-sub">Converts the whole display automatically.</div>
       </div>
       <div class="seg">
         <button class="${u === "kg" ? "on" : ""}" data-unit="kg">kg</button>
@@ -1546,19 +1655,19 @@ function renderSettings() {
     </div>
     <div class="setting-row">
       <div>
-        <div class="setting-label">Exporter les données</div>
-        <div class="setting-sub">Télécharge un fichier .json avec tout ton log.</div>
+        <div class="setting-label">Export data</div>
+        <div class="setting-sub">Downloads a .json file with your whole log.</div>
       </div>
-      <button class="pill-btn pill-light" data-export>Exporter</button>
+      <button class="pill-btn pill-light" data-export>Export</button>
     </div>
     <div class="setting-row">
       <div>
-        <div class="setting-label">Importer des données</div>
-        <div class="setting-sub">Restaure depuis un fichier .json exporté.</div>
+        <div class="setting-label">Import data</div>
+        <div class="setting-sub">Restores from an exported .json file.</div>
       </div>
-      <button class="pill-btn pill-light" data-import>Importer</button>
+      <button class="pill-btn pill-light" data-import>Import</button>
     </div>
-    <p class="hint">Les données sont stockées en kg — changer d'unité ne modifie rien, juste l'affichage et la saisie.</p>`;
+    <p class="hint">Data is stored in kg — switching units changes nothing but the display and input.</p>`;
 }
 
 function renderArchived(archived, archEx) {
@@ -1569,34 +1678,34 @@ function renderArchived(archived, archEx) {
       <div class="arch-row">
         <div style="font-size:15px;font-weight:600">${esc(w.name)}</div>
         <div style="display:flex;gap:8px">
-          <button class="pill-btn pill-light" data-restore="${w.id}">Restaurer</button>
-          <button class="pill-btn pill-red ${pendingDel === w.id ? "confirm" : ""}" data-del-workout="${w.id}">${pendingDel === w.id ? "Sûr ?" : "Supprimer"}</button>
+          <button class="pill-btn pill-light" data-restore="${w.id}">Restore</button>
+          <button class="pill-btn pill-red ${pendingDel === w.id ? "confirm" : ""}" data-del-workout="${w.id}">${pendingDel === w.id ? "Sure?" : "Delete"}</button>
         </div>
       </div>`).join("");
   }
   if (archEx.length) {
     const targets = state.workouts.filter(w => !w.archived);
-    h += `<div style="font-family:'Oswald',sans-serif;font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint);margin:18px 2px 10px">Exercices</div>`;
+    h += `<div style="font-family:'Oswald',sans-serif;font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint);margin:18px 2px 10px">Exercises</div>`;
     h += archEx.map(({ ex, from }) => `
       <div class="arch-row" style="flex-direction:column;align-items:stretch;gap:10px">
         <div style="display:flex;align-items:center;justify-content:space-between">
           <div>
             <div style="font-size:15px;font-weight:600">${esc(ex.name)}</div>
-            <div style="font-size:11px;color:var(--faint);margin-top:1px">de « ${esc(from.name)} »</div>
+            <div style="font-size:11px;color:var(--faint);margin-top:1px">from “${esc(from.name)}”</div>
           </div>
-          <button class="pill-btn pill-red ${pendingDel === ex.id ? "confirm" : ""}" data-del-ex="${ex.id}">${pendingDel === ex.id ? "Sûr ?" : "Supprimer"}</button>
+          <button class="pill-btn pill-red ${pendingDel === ex.id ? "confirm" : ""}" data-del-ex="${ex.id}">${pendingDel === ex.id ? "Sure?" : "Delete"}</button>
         </div>
         ${restoreEx === ex.id
           ? `<div style="display:flex;flex-direction:column;gap:6px">
-               <div style="font-size:12px;color:var(--dim)">Restaurer dans quel workout ?</div>
+               <div style="font-size:12px;color:var(--dim)">Restore into which workout?</div>
                <div style="display:flex;gap:6px;flex-wrap:wrap">
                  ${targets.map(w => `<button class="pill-btn pill-light" data-restore-ex="${ex.id}:${w.id}">${esc(w.name)}</button>`).join("")}
                </div>
              </div>`
-          : `<button class="pill-btn pill-light" data-restore-ex-pick="${ex.id}" style="align-self:flex-start">Restaurer</button>`}
+          : `<button class="pill-btn pill-light" data-restore-ex-pick="${ex.id}" style="align-self:flex-start">Restore</button>`}
       </div>`).join("");
   }
-  $("main").innerHTML = h || `<p class="hint">Rien d'archivé.</p>`;
+  $("main").innerHTML = h || `<p class="hint">Nothing archived.</p>`;
 }
 
 /* =================================================================
@@ -1625,10 +1734,11 @@ function draftToSets(cols, isBw) {
 }
 
 function doExport() {
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+  const stamp = new Date().toISOString().slice(0, 10);
+  const blob = new Blob([JSON.stringify(serialize(), null, 2)], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = "training-log-backup.json";
+  a.download = `training-log-${stamp}.json`;
   a.click();
   URL.revokeObjectURL(a.href);
 }
@@ -1651,7 +1761,7 @@ function deleteExercise(id) {
 
 function archiveExercise(id) {
   const ex = findEx(id);
-  if (ex) { ex.archived = true; ex.originWorkout = (state.workouts.find(w => w.exercises.includes(ex)) || {}).name || ""; }
+  if (ex) ex.archived = true;
   actionEx = null;
   save(); render();
 }
@@ -1712,20 +1822,18 @@ document.addEventListener("click", e => {
 
   const el = e.target.closest("[data-tab],[data-add-workout],[data-archive],[data-del-workout],[data-restore],[data-restore-ex],[data-restore-ex-pick],[data-log],[data-ex-actions],[data-archive-ex],[data-del-ex],[data-cancel-action],[data-move-mode],[data-move],[data-add-ex],[data-add-set],[data-rm-set],[data-toggle-chart],[data-toggle-max],[data-bw-toggle],[data-unit],[data-export],[data-import],#editBtn");
 
-  const keepsPending = el && el.dataset && (
-    (el.dataset.delWorkout && Number(el.dataset.delWorkout) === pendingDel) ||
-    (el.dataset.delEx && Number(el.dataset.delEx) === pendingDel) ||
-    el.dataset.exActions !== undefined ||
-    el.dataset.archiveEx !== undefined ||
-    el.dataset.cancelAction !== undefined);
-  if (!keepsPending && pendingDel !== null) {
+  const d = el && el.dataset ? el.dataset : {};
+  // these clicks belong to the delete-confirm / action-menu flow and must not dismiss it
+  const inActionFlow = d.exActions !== undefined || d.archiveEx !== undefined ||
+                       d.delEx !== undefined || d.cancelAction !== undefined;
+  // dismiss a pending delete-confirm unless we clicked its own button or an action-menu button
+  if (pendingDel !== null && !inActionFlow &&
+      Number(d.delWorkout) !== pendingDel && Number(d.delEx) !== pendingDel) {
     pendingDel = null;
     render();
   }
-  // close an open action menu when clicking something unrelated to it
-  if (actionEx !== null && el && el.dataset &&
-      el.dataset.exActions === undefined && el.dataset.archiveEx === undefined &&
-      el.dataset.delEx === undefined && el.dataset.cancelAction === undefined) {
+  // close an open action menu when clicking anything outside that menu
+  if (actionEx !== null && !inActionFlow) {
     actionEx = null;
     render();
   }
@@ -1735,10 +1843,10 @@ document.addEventListener("click", e => {
   if (el.id === "editBtn") { editTabs = !editTabs; pendingDel = null; actionEx = null; moveEx = null; return render(); }
 
   if (el.dataset.unit) {
-    state.settings.unit = el.dataset.unit;
+    displayUnit = el.dataset.unit;
     // drop prefilled drafts so columns re-derive in the new unit (avoid showing kg numbers as lbs)
     for (const k in drafts) delete drafts[k];
-    save(); return render();
+    return render();
   }
   if (el.dataset.export !== undefined) return doExport();
   if (el.dataset.import !== undefined) return $("importFile").click();
@@ -1770,7 +1878,7 @@ document.addEventListener("click", e => {
     return render();
   }
   if (el.dataset.addWorkout !== undefined) {
-    const w = { id: nid(), name: "Nouveau Workout", archived: false, exercises: [] };
+    const w = { id: nid(), name: "New Workout", archived: false, exercises: [] };
     state.workouts.push(w);
     activeId = w.id;
     save(); return render();
@@ -1841,21 +1949,34 @@ document.addEventListener("click", e => {
     const ex = activeWorkout().exercises.find(x => x.id === exId);
     const sets = draftToSets(drafts[exId], ex.bw);
     if (!sets.length) {
-      el.textContent = ex.bw ? "Remplis les reps" : "Remplis reps + poids";
+      const lbl = el.textContent;
+      el.textContent = ex.bw ? "Enter reps" : "Enter reps + weight";
       el.classList.add("err");
-      setTimeout(() => { el.textContent = "Log"; el.classList.remove("err"); }, 1300);
+      setTimeout(() => { el.textContent = lbl; el.classList.remove("err"); }, 1300);
       return;
     }
-    const entry = { date: logTs(), sets };
-    if (ex.bw) entry.bw = state.bodyweight || 0;   // snapshot, so later BW changes don't rewrite history
-    (ex.history ??= []).push(entry);
+    const ts = logTs();
+    ex.history ??= [];
+    const existing = entryOnDay(ex, ts);
+    if (existing) {
+      // same day already logged -> MODIFY that entry in place (no duplicate point)
+      existing.sets = sets;
+      existing.date = ts;
+      if (ex.bw) existing.bw = state.bodyweight || 0; else delete existing.bw;
+    } else {
+      const entry = { date: ts, sets };
+      if (ex.bw) entry.bw = state.bodyweight || 0;   // snapshot, so later BW changes don't rewrite history
+      ex.history.push(entry);
+    }
     // `last` = the chronologically newest entry (a backdated log must not overwrite a newer one)
     const newest = ex.history.reduce((a, b) => (b.date > a.date ? b : a));
-    const changed = JSON.stringify(newest.sets) !== JSON.stringify(ex.last);
-    if (changed) ex.lastChanged = newest.date;
+    if (JSON.stringify(newest.sets) !== JSON.stringify(ex.last)) ex.lastChanged = newest.date;
     ex.last = newest.sets;
-    delete drafts[exId];
-    save(); return render();
+    // keep the draft prefilled so the values stay visible/editable; flash a confirmation
+    justLogged = exId;
+    save(); render();
+    setTimeout(() => { if (justLogged === exId) { justLogged = null; render(); } }, 1600);
+    return;
   }
   if (el.dataset.addEx !== undefined) {
     const name = addDraft.name.trim();
@@ -1911,8 +2032,7 @@ document.addEventListener("input", e => {
     const m = state.maxes[el.dataset.max];
     m.value = Math.round(store(num(el.value) || 0) * 100) / 100;
     save();
-    const t = (state.maxes.squat.value||0) + (state.maxes.bench.value||0) + (state.maxes.deadlift.value||0);
-    document.querySelector(".total-num").innerHTML = `${fmtW(t)}<small>${unit()}</small>`;
+    document.querySelector(".total-num").innerHTML = `${fmtW(sbdTotal())}<small>${unit()}</small>`;
     updateRatios();
   }
 });
@@ -1941,12 +2061,13 @@ $("importFile").addEventListener("change", e => {
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      const data = JSON.parse(reader.result);
-      if (!data.workouts || !data.maxes) throw new Error("format");
-      state = migrate(data);
+      const st = deserialize(JSON.parse(reader.result));
+      if (!st) throw new Error("format");
+      state = st;
       activeId = state.workouts.find(w => !w.archived)?.id ?? "maxes";
+      for (const k in drafts) delete drafts[k];
       save(); render();
-    } catch { alert("Fichier de backup invalide."); }
+    } catch { alert("Invalid backup file."); }
   };
   reader.readAsText(file);
   e.target.value = "";
@@ -1958,6 +2079,8 @@ $("importFile").addEventListener("change", e => {
   const today = new Date();
   input.max = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
   input.addEventListener("change", () => {
+    for (const k in drafts) delete drafts[k];   // re-derive prefills for the new target day
+    justLogged = null;
     if (!input.value) { logDate = null; return render(); }
     const [y, m, d] = input.value.split("-").map(Number);
     const ts = new Date(y, m - 1, d, 12).getTime();   // noon, avoids timezone edge cases
@@ -1965,6 +2088,8 @@ $("importFile").addEventListener("change", e => {
     render();
   });
   $("todayBtn").addEventListener("click", () => {
+    for (const k in drafts) delete drafts[k];
+    justLogged = null;
     logDate = null;
     input.value = "";
     render();
@@ -1973,7 +2098,7 @@ $("importFile").addEventListener("change", e => {
 
 setupModalGestures();
 render();
-if (!storageOk) console.warn("localStorage indisponible — données en mémoire seulement.");
+if (!storageOk) console.warn("localStorage unavailable — in-memory data only.");
 </script>
 </body>
 </html>
