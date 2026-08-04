@@ -681,6 +681,65 @@ input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-app
 .log-btn.err { background: var(--red); color: #fff; }
 .log-btn.saved { background: var(--green); color: #fff; }
 
+/* rest timer */
+.rest-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.rest-label {
+  font-family: 'Oswald', sans-serif;
+  font-size: 11px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.rest-input {
+  width: 58px;
+  background: var(--inset);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 700;
+  text-align: center;
+  padding: 7px 4px;
+  outline: none;
+  font-family: inherit;
+  -moz-appearance: textfield;
+}
+.rest-input:disabled { opacity: .5; }
+.rest-input::-webkit-outer-spin-button, .rest-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.rest-unit { font-size: 12px; color: var(--faint); margin-left: -3px; }
+.rest-btn {
+  margin-left: auto;
+  min-width: 96px;
+  background: var(--surface);
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+.rest-btn.running {
+  background: color-mix(in srgb, var(--accent) 85%, transparent);
+  color: var(--accent-ink);
+  border-color: color-mix(in srgb, var(--accent) 55%, rgba(255,255,255,0.35));
+}
+.rest-btn.done {
+  background: color-mix(in srgb, var(--green) 85%, transparent);
+  color: #06210E;
+  border-color: color-mix(in srgb, var(--green) 55%, rgba(255,255,255,0.35));
+}
+.rest-btn:active { opacity: .7; }
+
 /* add exercise */
 .add-card {
   background: var(--surface);
@@ -1064,6 +1123,7 @@ input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-app
          name, notes,
          bodyweight: <bool>,            // is this a bodyweight movement
          archived: <bool>,
+         rest: <int seconds>,          // rest-timer duration (optional; default 120)
          history: [{
            date: <ms epoch>,
            sets: [{ weight: <kg added load>, reps: <int> }],
@@ -1076,6 +1136,7 @@ input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-app
    ================================================================= */
 const DAY = 86400000;
 const MONTH = 30 * DAY;
+const DEFAULT_REST = 120;   // default rest-timer duration in seconds
 const daysAgo = n => Date.now() - n * DAY;
 let uid = Date.now();
 const nid = () => ++uid;
@@ -1162,6 +1223,7 @@ function serialize() {
         notes: ex.notes || "",
         bodyweight: !!ex.bw,
         archived: !!ex.archived,
+        rest: ex.rest > 0 ? ex.rest : DEFAULT_REST,
         history: (ex.history || []).map(e => {
           const o = { date: e.date, sets: (e.sets || []).map(s => ({ weight: s.w, reps: s.r })) };
           if (e.bw != null) o.bodyweightAtTime = e.bw;
@@ -1205,6 +1267,7 @@ function deserialize(obj) {
       notes: ex.notes || "",
       bw: !!ex.bodyweight,
       archived: !!ex.archived,
+      rest: ex.rest > 0 ? Math.round(ex.rest) : DEFAULT_REST,
       history: (ex.history || []).map(e => {
         const entry = { date: e.date, sets: (e.sets || []).map(s => ({ w: num0(s.weight), r: parseInt(s.reps) || 0 })) };
         if (e.bodyweightAtTime != null) entry.bw = num0(e.bodyweightAtTime);
@@ -1247,7 +1310,7 @@ function migrateLegacy(data) {
       }
       return rebuild({
         id: nid(), name: ex.name || "Exercise", notes: ex.notes || "",
-        bw: !!ex.bw, archived: !!ex.archived, history,
+        bw: !!ex.bw, archived: !!ex.archived, rest: ex.rest > 0 ? Math.round(ex.rest) : DEFAULT_REST, history,
       });
     }),
   }));
@@ -1470,6 +1533,104 @@ function compactSummary(ex) {
   const cell = w => ex.bw ? (w > 0 ? "+" + fmtW(w) : "BW") : fmtW(w);
   return sets.map(s => `${cell(s.w)}×${s.r}`).join(" <small>·</small> ");
 }
+
+/* =================================================================
+   Rest timer — per-exercise countdown (seconds), beeps + vibrates
+   when done. One timer runs at a time. Uses an absolute end time so
+   it stays accurate if the tab is backgrounded briefly, and it re-syncs
+   on visibilitychange. Duration is stored on the exercise (ex.rest).
+   ================================================================= */
+let restTimer = null;   // { exId, endsAt, intervalId } | null
+let audioCtx = null;    // unlocked lazily on the first Start tap (iOS requires a gesture)
+
+function restOf(ex) { return ex.rest > 0 ? ex.rest : DEFAULT_REST; }
+
+function restRowHTML(ex) {
+  const running = restTimer && restTimer.exId === ex.id;
+  const remain = running ? Math.max(0, Math.ceil((restTimer.endsAt - Date.now()) / 1000)) : null;
+  return `<div class="rest-row">
+    <span class="rest-label">Rest</span>
+    <input class="rest-input" type="number" inputmode="numeric" min="5" max="900" step="5"
+           value="${restOf(ex)}" data-rest="${ex.id}" ${running ? "disabled" : ""}>
+    <span class="rest-unit">s</span>
+    <button class="rest-btn ${running ? "running" : ""}" data-rest-toggle="${ex.id}">
+      ${running ? `${remain}s ✕` : "Start ▸"}
+    </button>
+  </div>`;
+}
+
+function unlockAudio() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+  } catch (e) { /* audio unsupported */ }
+}
+
+function beep() {
+  // three short rising tones + a vibration if supported
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    const now = audioCtx.currentTime;
+    [0, 0.22, 0.44].forEach((t, i) => {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = "sine";
+      o.frequency.value = 660 + i * 220;
+      g.gain.setValueAtTime(0.0001, now + t);
+      g.gain.exponentialRampToValueAtTime(0.4, now + t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + t + 0.18);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(now + t); o.stop(now + t + 0.2);
+    });
+  } catch (e) { /* ignore */ }
+  try { if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]); } catch (e) {}
+}
+
+function stopRest() {
+  if (restTimer && restTimer.intervalId) clearInterval(restTimer.intervalId);
+  restTimer = null;
+}
+
+function tickRest() {
+  if (!restTimer) return;
+  const remain = Math.ceil((restTimer.endsAt - Date.now()) / 1000);
+  const btn = document.querySelector(`[data-rest-toggle="${restTimer.exId}"]`);
+  if (remain <= 0) {
+    beep();
+    const doneId = restTimer.exId;
+    stopRest();
+    // flash "Done!" on the button if it's still visible
+    const b = document.querySelector(`[data-rest-toggle="${doneId}"]`);
+    if (b) {
+      b.classList.remove("running");
+      b.classList.add("done");
+      b.textContent = "Done ✓";
+      const inp = document.querySelector(`[data-rest="${doneId}"]`);
+      if (inp) inp.disabled = false;
+      setTimeout(() => { const bb = document.querySelector(`[data-rest-toggle="${doneId}"]`); if (bb) { bb.classList.remove("done"); bb.textContent = "Start ▸"; } }, 3000);
+    }
+    return;
+  }
+  if (btn) btn.textContent = `${remain}s ✕`;
+}
+
+function startRest(exId) {
+  const ex = findEx(exId);
+  if (!ex) return;
+  stopRest();                       // only one timer at a time
+  unlockAudio();                    // must happen inside the tap gesture
+  const dur = restOf(ex);
+  restTimer = { exId, endsAt: Date.now() + dur * 1000, intervalId: null };
+  restTimer.intervalId = setInterval(tickRest, 250);
+  render();                         // reflect running state (button + disabled field)
+}
+
+/* re-sync when returning to the foreground: iOS freezes timers while
+   backgrounded, so recompute and fire immediately if it already elapsed. */
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && restTimer) tickRest();
+});
+
 
 /* =================================================================
    Inline (static) charts — default window: last month
@@ -2001,6 +2162,7 @@ function renderWorkout(w) {
       <button class="log-btn${justLogged === ex.id ? " saved" : ""}" data-log="${ex.id}">${
         justLogged === ex.id ? "Saved ✓" : (entryOnDay(ex, logTs()) ? "Modify" : "Log")
       }</button>
+      ${restRowHTML(ex)}
     </div>`;
   });
 
@@ -2402,7 +2564,7 @@ document.addEventListener("click", e => {
     return openModal({ type: "max", maxKey: opener.dataset.openMax });
   }
 
-  const el = e.target.closest("[data-tab],[data-add-workout],[data-archive],[data-del-workout],[data-restore],[data-restore-ex],[data-restore-ex-pick],[data-log],[data-ex-actions],[data-archive-ex],[data-del-ex],[data-cancel-action],[data-move-mode],[data-move],[data-toggle-card],[data-goto-ex],[data-add-open],[data-add-cancel],[data-add-ex],[data-add-set],[data-rm-set],[data-toggle-chart],[data-toggle-max],[data-bw-toggle],[data-unit],[data-export],[data-text-export],[data-import],#editBtn");
+  const el = e.target.closest("[data-tab],[data-add-workout],[data-archive],[data-del-workout],[data-restore],[data-restore-ex],[data-restore-ex-pick],[data-log],[data-ex-actions],[data-archive-ex],[data-del-ex],[data-cancel-action],[data-move-mode],[data-move],[data-toggle-card],[data-goto-ex],[data-add-open],[data-add-cancel],[data-add-ex],[data-add-set],[data-rm-set],[data-toggle-chart],[data-toggle-max],[data-bw-toggle],[data-rest-toggle],[data-unit],[data-export],[data-text-export],[data-import],#editBtn");
 
   const d = el && el.dataset ? el.dataset : {};
   // these clicks belong to the delete-confirm / action-menu flow and must not dismiss it
@@ -2546,6 +2708,11 @@ document.addEventListener("click", e => {
     activeId = Number(el.dataset.restore);
     save(); return render();
   }
+  if (el.dataset.restToggle) {
+    const id = Number(el.dataset.restToggle);
+    if (restTimer && restTimer.exId === id) { stopRest(); return render(); }   // tap while running = cancel
+    return startRest(id);
+  }
   if (el.dataset.bwToggle) {
     const ex = findEx(el.dataset.bwToggle);
     ex.bw = !ex.bw;
@@ -2603,9 +2770,9 @@ document.addEventListener("click", e => {
     if (sets.length) {
       const entry = { date: startDate, sets };
       if (addDraft.bw) entry.bw = state.bodyweight || 0;
-      ex = { id: nid(), name, notes: "", bw: addDraft.bw, archived: false, last: sets, lastChanged: startDate, history: [entry] };
+      ex = { id: nid(), name, notes: "", bw: addDraft.bw, archived: false, rest: DEFAULT_REST, last: sets, lastChanged: startDate, history: [entry] };
     } else {
-      ex = { id: nid(), name, notes: "", bw: addDraft.bw, archived: false, last: [], lastChanged: Date.now(), history: [] };
+      ex = { id: nid(), name, notes: "", bw: addDraft.bw, archived: false, rest: DEFAULT_REST, last: [], lastChanged: Date.now(), history: [] };
     }
     activeWorkout().exercises.push(ex);
     addDraft.name = "";
@@ -2633,6 +2800,13 @@ document.addEventListener("input", e => {
   else if (el.dataset.exRename !== undefined) {
     const ex = findEx(el.dataset.exRename);
     if (ex) { ex.name = el.value; save(); }
+  }
+  else if (el.dataset.rest !== undefined) {
+    const ex = findEx(el.dataset.rest);
+    if (ex) {
+      let v = parseInt(el.value, 10);
+      if (Number.isFinite(v)) { ex.rest = Math.min(900, Math.max(5, v)); save(); }
+    }
   }
   else if (el.dataset.bodyweight !== undefined) {
     state.bodyweight = Math.max(0, Math.round(store(num(el.value) || 0) * 100) / 100);
